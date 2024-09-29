@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components{
+
+    button {
+        @apply whitespace-nowrap px-3 py-0.5 bg-amber-700 text-gray-300 rounded-md shadow-sm hover:bg-amber-600 hover:shadow-md focus:bg-amber-600 focus:shadow-md focus:outline-none focus:ring-0 active:bg-amber-700 active:shadow-md transition duration-150 ease-in-out;
+    }
+
+    td:empty{
+        display: none;
+    }
+}
+
+@layer base{
+  /* Firefox */
+  * {
+    scrollbar-color: theme(colors.stone.900) transparent;
+  }
+
+  /* Chrome, Edge, and Safari */
+  *::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    @apply bg-stone-900;
+    border-radius: 0px;
+    border-width: 0px;
+  }
+
+  .feather-icon {
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+  }
+}

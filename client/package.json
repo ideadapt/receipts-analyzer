@@ -1,0 +1,16 @@
+{
+  "name": "spelljack",
+  "version": "1.0.0",
+  "description": "Comfortably check multiple wordpress articles for spelling errors and manage those errors in one place",
+  "scripts": {
+    "dev": "rm -rf dist/*.* && npx parcel src/index.html",
+    "dist": "rm -rf dist/*.* && npx parcel build src/index.html --public-url ./"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.28.1-dev106.0",
+    "alpinejs": "^3.14.1",
+    "parcel": "^2.12.0",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13"
+  }
+}
