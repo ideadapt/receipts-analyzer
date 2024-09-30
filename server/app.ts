@@ -98,7 +98,7 @@ router.get("/gists/:gist_id", async (context) => {
       fileContent = file.content;
     }
 
-    gistContent[fileName] = { content: JSON.parse(fileContent) };
+    gistContent[fileName] = { content: fileName.endsWith('.json') ? JSON.parse(fileContent) : fileContent };
   }
 
   applyCorsHeaders(context.response, context.request);
@@ -123,23 +123,20 @@ router
     }
 
     const state = await request.body({ type: "json" }).value;
-    for (
-      const fileObj
-        of (Object.values(state) as Array<
-          { content: Record<string, unknown> | string }
-        >)
-    ) {
-      fileObj.content = JSON.stringify(fileObj.content);
+    for (const [fileName, fileObj] of Object.entries(state) as any) {
+      fileObj.content = fileName.endsWith('.json') ? JSON.stringify(fileObj.content) : fileObj.content + "";
     }
-    await octokit(`/gists/${params.gist_id}`, "PATCH", {
+    const res = await octokit(`/gists/${params.gist_id}`, "PATCH", {
       description: "receipts-db",
       files: state, // { [filename: string]: { content: string }}
     });
+    const status = res.ok ? Status.OK : res.status;
+    if(!res.ok) console.error(await res.json());
 
     applyCorsHeaders(response, request);
     response.headers.set("Content-Type", "application/json");
-    response.status = Status.OK;
-    response.body = JSON.stringify("{}");
+    response.status = status;
+    response.body = JSON.stringify({});
   });
 
 router.post("/receipts", async ({ request, response }) => {
@@ -219,10 +216,8 @@ router.post("/receipts", async ({ request, response }) => {
     applyCorsHeaders(response, request);
     response.headers.set("Content-Type", "application/json");
     response.status = Status.OK;
-    const rows = text.value.split("\n");
     response.body = JSON.stringify({
-      headers: rows[0].split(","),
-      items: rows.slice(1),
+      csv: text.value
     });
   }
 });

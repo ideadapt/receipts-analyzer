@@ -8,6 +8,7 @@
 
     <script type="module">
         import config from '/src/config.js' // absolute path from parcel root
+        import {stringify, parse} from '/src/csv.mjs'
 
         let editor_password = localStorage.getItem('receipts_editor_password') || ''
 
@@ -28,11 +29,8 @@
                     'Authorization': 'Bearer ' + editor_password
                 },
                 body: JSON.stringify({
-                    ['items.json']: {
-                        content: {
-                            headers,
-                            items
-                        }
+                    ['items.csv']: { 
+                        content: stringify([headers, items])
                     }
                 })
             })
@@ -60,8 +58,9 @@
                 async init() {
                     console.log('init')
                     await loadState().then(state => {
-                        this.headers = state['items.json'].content.headers
-                        this.items = state['items.json'].content.items
+                        const csv = parse(state['items.csv'].content)
+                        this.headers = csv[0]
+                        this.items = csv.slice(1)
                     })
                 },
 
@@ -79,8 +78,9 @@
                         const fileAnalysisResult = (await resp.json())
                         console.log(fileAnalysisResult)
 
-                        this.headers = this.headers || fileAnalysisResult.headers
-                        this.items.push(...fileAnalysisResult.items)
+                        const csv = parse(fileAnalysisResult.csv)
+                        this.headers = csv[0]
+                        this.items.push(...csv.slice(1))
                         await storeState({ headers: this.headers, items: this.items })
                     } else {
                         const err = await resp.text()
