@@ -31,7 +31,7 @@ const app = new Application();
 const router = new Router();
 const ghApiOpts = {
   headers: new Headers({
-    "Authorization": gh_gist_token,
+    "Authorization": 'Bearer ' + gh_gist_token,
     "X-GitHub-Api-Version": "2022-11-28",
     "accept": "application/json",
   }),
@@ -114,10 +114,10 @@ router
   )
   .patch("/gists/:gist_id", async ({ request, response, params }) => {
     console.log("PATCH gist");
+    applyCorsHeaders(response, request);
 
     if (!isAuthorized(request)) {
       console.log("Not authorized!");
-      applyCorsHeaders(response, request);
       response.status = Status.Unauthorized;
       return;
     }
@@ -133,7 +133,6 @@ router
     const status = res.ok ? Status.OK : res.status;
     if(!res.ok) console.error(await res.json());
 
-    applyCorsHeaders(response, request);
     response.headers.set("Content-Type", "application/json");
     response.status = status;
     response.body = JSON.stringify({});
@@ -142,7 +141,7 @@ router
 router.post("/receipts", async ({ request, response }) => {
   console.log("POST receipts");
 
-  const assistant_name = "asst_pdf_receipts_reader_v4";
+  const assistant_name = "asst_pdf_receipts_reader_v7";
   const existingAssistant =
     (await client.beta.assistants.list()).data.filter((a) =>
       a.name === assistant_name
@@ -156,11 +155,15 @@ router.post("/receipts", async ({ request, response }) => {
       instructions:
         "You can read tabular data from a shopping receipt and output this data in propper CSV format." +
         "You never include anything but the raw CSV rows. You omit the surrounding markdown code blocks." +
+        "Make sure you never remove the header row containing the column titles." +
         "You always add an extra column at the end called 'Category', which categorizes the shopping item based on its name." +
         "The receipts are in german, so you have to use german category names. Try to use one of the following category names: " +
         "Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck." +
         "You may add another category if none of the examples match." +
-        "Add another extra column at the end called 'Datetime' that contains the date and time of the receipt. The receipt date and time value is the same for every shopping item.",
+        "Add another extra column at the end called 'Datetime' that contains the date and time of the receipt. The receipt date and time value is the same for every shopping item." +
+        "Add another extra column at the end called 'Seller' that contains the name of the receipt issuer (e.g. store name). The seller value is the same for every shopping item." +
+        "If the seller name contains one of: 'Migros', 'Coop', 'Aldi', 'Lidl', use that short form."
+        ,
       model: "gpt-4o-mini",
       tools: [{ type: "file_search" }],
     });

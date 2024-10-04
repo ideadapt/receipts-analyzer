@@ -30,7 +30,7 @@
                 },
                 body: JSON.stringify({
                     ['items.csv']: { 
-                        content: stringify([headers, items])
+                        content: stringify([headers, ...items])
                     }
                 })
             })
@@ -80,6 +80,7 @@
 
                         const csv = parse(fileAnalysisResult.csv)
                         this.headers = csv[0]
+                        // TODO merge: datetime+seller is key. overwrite existing with new ones.
                         this.items.push(...csv.slice(1))
                         await storeState({ headers: this.headers, items: this.items })
                     } else {
