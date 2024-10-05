@@ -1,14 +1,15 @@
-<html>
+<html lang="de">
 
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="index.css" rel="stylesheet">
+    <title>Receipts Summary</title>
     <!--<link rel="icon" type="image/x-icon" href="favicon.ico">-->
 
     <script type="module">
         import config from '/src/config.js' // absolute path from parcel root
-        import {stringify, parse} from '/src/csv.mjs'
+        import {parse, stringify} from '/src/csv.mjs'
 
         let editor_password = localStorage.getItem('receipts_editor_password') || ''
 
@@ -67,7 +68,9 @@
                 async analyzeFile() {
                     const $files = document.getElementById('files')
                     const formData = new FormData()
-                    formData.append('files', $files.files[0])
+                    for(const file of $files.files){
+                        formData.append('files[]', file)
+                    }
 
                     const resp = await fetch(config.proxy_root + '/receipts', {
                         method: 'POST',
@@ -103,7 +106,7 @@
         <article class="basis-2/3">
             <div class="py-3 pb-8 flex gap-6 items-center">
                 <div class="relative flex w-full max-w-sm flex-col gap-1">
-                    <input id="files" type="file"
+                    <input x-ref="files" id="files" type="file" multiple
                         class="w-full overflow-clip rounded-md border border-neutral-300 bg-neutral-50/50 text-sm text-neutral-600 file:mr-4 file:cursor-pointer file:border-none file:bg-neutral-50 file:px-4 file:py-2 file:font-medium file:text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-75 dark:border-neutral-700 dark:bg-neutral-900/50 dark:text-neutral-300 dark:file:bg-neutral-900 dark:file:text-white dark:focus-visible:outline-white" />
                 </div>
                 <button x-on:click.prevent="analyzeFile()">Upload</button>
