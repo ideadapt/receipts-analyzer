@@ -17,13 +17,13 @@ import com.aallam.openai.api.vectorstore.VectorStore
 import com.aallam.openai.api.vectorstore.VectorStoreRequest
 import com.aallam.openai.client.OpenAI
 import com.aallam.openai.client.OpenAIConfig
-import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.delay
+import kotlinx.serialization.Serializable
 
 //import io.ktor.server.sse.*
 //import io.ktor.sse.*
@@ -49,8 +49,14 @@ fun Application.configureRouting() {
                         is PartData.FileItem -> {
                             val fileName = part.originalFileName as String
                             buffer.readFrom(part.streamProvider())
-                            val aiFile = ai.file(FileUpload(purpose = Purpose("assistants"), file = FileSource(name = fileName, source = buffer)))
-                            val vectorStore = ai.createVectorStore(VectorStoreRequest(name = "receipts", fileIds = listOf(aiFile.id)))
+                            val aiFile = ai.file(
+                                FileUpload(
+                                    purpose = Purpose("assistants"),
+                                    file = FileSource(name = fileName, source = buffer)
+                                )
+                            )
+                            val vectorStore =
+                                ai.createVectorStore(VectorStoreRequest(name = "receipts", fileIds = listOf(aiFile.id)))
                             vectorStores.add(vectorStore)
                         }
 
@@ -62,7 +68,8 @@ fun Application.configureRouting() {
             }
 
             val assistantName = "asst_pdf_receipts_reader_v7"
-            val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(AssistantRequest(
+            val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
+                AssistantRequest(
                     name = assistantName,
                     instructions = """
         |You can read tabular data from a shopping receipt and output this data in propper CSV format.
@@ -74,18 +81,23 @@ fun Application.configureRouting() {
         |Add another extra column at the end called 'Seller' that contains the name of the receipt issuer (e.g. store name). The seller value is the same for every shopping item.
         |If the seller name contains one of: 'Migros', 'Coop', 'Aldi', 'Lidl', use that short form.
         |""".trimMargin()
-            ))
+                )
+            )
 
             val aiThreadRun = ai.createThreadRun(
-                    request = ThreadRunRequest(
-                            assistantId = assistant.id,
-                            thread = threadRequest {
-                                toolResources = ToolResources(fileSearch = FileSearchResources(vectorStoreIds = vectorStores.map { it.id }))
-                                messages = listOf(ThreadMessage(
-                                        content = "Extract tabular data from attached receipt. The columns in the receipt are Artikelbezeichnung, Menge, Preis, Total.",
-                                        role = Role.User))
-                            }
-                    ))
+                request = ThreadRunRequest(
+                    assistantId = assistant.id,
+                    thread = threadRequest {
+                        toolResources =
+                            ToolResources(fileSearch = FileSearchResources(vectorStoreIds = vectorStores.map { it.id }))
+                        messages = listOf(
+                            ThreadMessage(
+                                content = "Extract tabular data from attached receipt. The columns in the receipt are Artikelbezeichnung, Menge, Preis, Total.",
+                                role = Role.User
+                            )
+                        )
+                    }
+                ))
 
             do {
                 delay(1500)
@@ -94,9 +106,14 @@ fun Application.configureRouting() {
 
             val csv = ai.messages(aiThreadRun.threadId).map {
                 it.content.first() as? MessageContent.Text ?: error("Expected MessageContent.Text")
-            }.map { it.text.value }
+            }
+                .map { it.text.value }
+                .dropLast(1)
 
-            call.respondText(contentType = ContentType.parse("text/csv"), status = HttpStatusCode.OK, text = csv.joinToString("\n"))
+            call.respond(FileAnalysisResult(csv = csv.joinToString("\n")))
         }
     }
 }
+
+@Serializable
+data class FileAnalysisResult(val csv: String)
