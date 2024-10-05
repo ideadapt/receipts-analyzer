@@ -3,3 +3,5 @@ node_modules/
 server/.env
 dist/
 .parcel-cache/
+.env
+/receipt-summary-server/.kotlin/errors
