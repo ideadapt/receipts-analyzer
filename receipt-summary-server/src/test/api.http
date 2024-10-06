@@ -1,0 +1,43 @@
+### list folder
+PROPFIND https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}
+Authorization: Basic anonymous {{share-password}}
+
+<?xml version="1.0" encoding="UTF-8"?>
+    <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+      <d:prop>
+        <d:getlastmodified/>
+        <d:getcontentlength/>
+        <d:getcontenttype/>
+        <oc:permissions/>
+        <d:getetag/>
+      </d:prop>
+    </d:propfind>
+
+### report folder
+REPORT https://ideadapt.net/nextcloud/remote.php/dav/files/uk-phone/receipts
+Authorization: Basic ... ...
+
+<?xml version="1.0" encoding="UTF-8"?>
+<oc:filter-files  xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+         <oc:filter-rules>
+                 <oc:favorite></oc:favorite>
+         </oc:filter-rules>
+ </oc:filter-files>
+
+### get file
+GET https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/state.csv
+Authorization: Basic anonymous {{share-password}}
+
+### update file
+PUT https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/state.csv
+Authorization: Basic anonymous {{share-password}}
+
+
+
+### download file
+GET https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/Receipt_20240717_175812_0090466_252_113-1.pdf
+Authorization: Basic anonymous {{share-password}}
+
+
+### get receipts
+GET http://localhost:3000/receipts
