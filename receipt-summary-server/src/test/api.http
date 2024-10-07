@@ -1,3 +1,5 @@
+### NextCloud WEBDAV
+
 ### list folder
 PROPFIND https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}
 Authorization: Basic anonymous {{share-password}}
@@ -25,19 +27,20 @@ Authorization: Basic ... ...
  </oc:filter-files>
 
 ### get file
-GET https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/state.csv
-Authorization: Basic anonymous {{share-password}}
+# GET https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/state.csv
+GET https://ideadapt.net/nextcloud/public.php/dav/files/{{state-id}}
+Authorization: Basic anonymous {{state-password}}
 
 ### update file
-PUT https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/state.csv
-Authorization: Basic anonymous {{share-password}}
-
+PUT https://ideadapt.net/nextcloud/public.php/dav/files/{{state-id}}
+Authorization: Basic anonymous {{state-password}}
 
 
 ### download file
-GET https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/Receipt_20240717_175812_0090466_252_113-1.pdf
+GET https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/Receipt_20240717_175812_0090466_252_113.pdf
 Authorization: Basic anonymous {{share-password}}
 
+### APP
 
 ### get receipts
 GET http://localhost:3000/receipts

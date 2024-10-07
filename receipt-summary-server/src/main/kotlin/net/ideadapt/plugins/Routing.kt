@@ -26,16 +26,16 @@ import io.ktor.server.routing.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNames
+import net.ideadapt.NxClient.File
+import net.ideadapt.sync
 import org.intellij.lang.annotations.Language
-
-@Serializable
-data class FileNode(
-    val internalPath: String,
-    val modifiedTime: Long,
-    val mimeType: String,
-    val size: Long,
-)
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.util.*
 
 @Language("JSON")
 val x = """ 
@@ -75,6 +75,20 @@ data class FlowEventFileCreate(
     val node: FileNode,
 )
 
+@Serializable
+data class FileNode @OptIn(ExperimentalSerializationApi::class) constructor(
+    val internalPath: String,
+    val modifiedTime: Long,
+    val mimeType: String,
+    val size: Long,
+    @JsonNames("Etag")
+    val etag: String,
+)
+
+private val json = Json {
+    ignoreUnknownKeys = true
+}
+
 @OptIn(BetaOpenAI::class)
 fun Application.configureRouting() {
 
@@ -83,19 +97,13 @@ fun Application.configureRouting() {
             // TODO https://github.com/kffl/nextcloud-webhooks/blob/master/README.md#authenticating-requests
             val body = call.receiveText()
             call.application.environment.log.info("Received hook {}", body)
-            if (body.contains("\\OCP\\Files::postCreate")) {
-                val event = call.receive(FlowEventFileCreate::class)
+            if (body.contains("\\\\OCP\\\\Files::postCreate")) {
+                val event = json.decodeFromString<FlowEventFileCreate>(body)
 
-                launch(Dispatchers.Default) { // run in dedicated thread pool, pool size = nr of CPUs
-                    // TODO process
-                    //  val job = job.createOrGet(event)
-                    //  if(job.status == NEW)
-                    //      val buffer = nx.readFile(event)
-                    //      val csv = ai.analyze(buffer)
-                    //      val status = receipts.merge(csv) // {merged: 2, new: 2, total: 36, filename: 'ejeje.pdf'}
-                    //      log(status)
-                    //      job.done(jobId)
-                    println(event)
+                launch(Dispatchers.IO) { // run in dedicated thread pool, pool size = nr of CPUs
+                    val lastModified =
+                        ZonedDateTime.ofInstant(Date(event.node.modifiedTime * 1000L).toInstant(), ZoneId.of("UTC"))
+                    sync(File(name = event.node.internalPath, lastModified = lastModified, etag = event.node.etag))
                 }
 
                 call.respond(HttpStatusCode.Accepted)

@@ -2,6 +2,7 @@ package net.ideadapt
 
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -12,8 +13,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
+import net.ideadapt.NxClient.File
 import net.ideadapt.plugins.configureHTTP
 import net.ideadapt.plugins.configureRouting
 import net.ideadapt.plugins.configureSerialization
@@ -24,7 +28,10 @@ import org.intellij.lang.annotations.Language
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.toJavaDuration
 
 fun main() {
 
@@ -42,49 +49,81 @@ fun main() {
 
     runBlocking {
         launch(Dispatchers.IO) {
-            val nx = NxClient()
-            var latestProcessed: ZonedDateTime? = null
+            sync()
+
             while (true) {
-                if (nx.modifiedSince(latestProcessed)) { // TODO storeState modifies the folder, move to another folder?
-                    val state = nx.state()
-                    if (!state.isBusy()) {
-                        val candidateFiles = nx.files()
-                        state.unprocessed(candidateFiles).firstOrNull()?.let { nextFile ->
-                            // ai.analyze(file)
-                            val newState = state.done(nextFile)
-                            nx.storeState(newState)
-
-                            // not very robust, since file modification time can be cheated
-                            latestProcessed = nextFile.lastModified
-                        } ?: {
-                            latestProcessed = ZonedDateTime.now()
-                        }
-                    }
-                }
-
                 delay(5.seconds)
             }
         }
     }
 }
 
+val workerMutex = Mutex()
+val nx = NxClient()
+
+suspend fun sync() {
+    workerMutex.withLock {
+        var state = nx.state()
+        state = state.start()
+        nx.storeState(state)
+
+        val candidateFiles = nx.files()
+        state.unprocessed(candidateFiles).forEach { nextFile ->
+            // try buffer = nx.file(nextFile)
+            // ai.analyze(buffer)
+            delay(5.seconds)
+            state = state.done(nextFile)
+            nx.storeState(state)
+        }
+
+        state = state.done()
+        nx.storeState(state)
+    }
+}
+
+suspend fun sync(file: File) {
+    workerMutex.withLock {
+        var state = nx.state()
+        state = state.start()
+        nx.storeState(state)
+
+        // try buffer = nx.file(nextFile)
+        // ai.analyze(buffer)
+        delay(5.seconds)
+        state = state.done(file)
+        nx.storeState(state)
+
+        state = state.done()
+        nx.storeState(state)
+    }
+}
+
 data class NxClient(
     private val shareId: String = requireNotNull(System.getenv("SHARE_ID")) { "SHARE_ID missing" },
     private val sharePassword: String = requireNotNull(System.getenv("SHARE_PASSWORD")) { "SHARE_PASSWORD missing" },
-    private val client: HttpClient = HttpClient(CIO),
+    private val stateId: String = requireNotNull(System.getenv("STATE_ID")) { "STATE_ID missing" },
+    private val statePassword: String = requireNotNull(System.getenv("STATE_PASSWORD")) { "STATE_PASSWORD missing" },
+    private val client: HttpClient = HttpClient(CIO) {
+        install(HttpTimeout)
+    },
     private val nxFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss z")
 ) {
 
+    // TODO could also be just the folders etag, more simple than date, but less information
     suspend fun modifiedSince(since: ZonedDateTime?): Boolean {
         if (since == null) return true
 
         val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId") {
             method = HttpMethod("PROPFIND")
+            timeout {
+                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
+            }
             basicAuth("anonymous", sharePassword)
             headers {
                 append("Depth", "0")
             }
         }
+
         val xml = resp.bodyAsText()
         val lastModifiedString = xml.substringAfter("<d:getlastmodified>").substringBefore("</d:getlastmodified>")
         val lastModified = ZonedDateTime.parse(lastModifiedString, nxFormatter)
@@ -92,18 +131,12 @@ data class NxClient(
         return lastModified.isAfter(since)
     }
 
-    suspend fun state(): State {
-        val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId/state.csv") {
-            method = HttpMethod("GET")
-            basicAuth("anonymous", sharePassword)
-        }
-        val csv = resp.bodyAsText()
-        return State(csv)
-    }
-
     suspend fun files(): SortedSet<File> {
         val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId") {
             method = HttpMethod("PROPFIND")
+            timeout {
+                requestTimeoutMillis = 60.seconds.inWholeMilliseconds
+            }
             basicAuth("anonymous", sharePassword)
         }
         val xml = resp.bodyAsText()
@@ -111,15 +144,14 @@ data class NxClient(
         val files = mutableSetOf<File>()
 
         parsedXml.responses
-            .filter { r -> !r.href.endsWith("/state.csv") }
             .forEach { r ->
                 val folderFiles = r.propstats
-                    .filter { p -> p.prop.quotaUsedBytes == null }
+                    .filter { p -> p.prop.quotaUsedBytes == null /*only folder has quotaUsedBytes set*/ }
                 folderFiles.forEach { f ->
                     files.add(
                         File(
                             name = r.href,
-                            state = "",
+                            etag = f.prop.getEtag.replace("\"", ""),
                             lastModified = ZonedDateTime.parse(f.prop.getLastModified, nxFormatter)
                         )
                     )
@@ -129,38 +161,71 @@ data class NxClient(
         return files.toSortedSet(compareBy { it.lastModified })
     }
 
+    suspend fun state(): State {
+        val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$stateId") {
+            method = HttpMethod("GET")
+            timeout {
+                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
+            }
+            basicAuth("anonymous", statePassword)
+        }
+        val csv = resp.bodyAsText()
+        return State(csv.trim().ifEmpty { ";;" })
+    }
+
     suspend fun storeState(state: State) {
-        val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId/state.csv") {
+        val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$stateId") {
             method = HttpMethod("PUT")
-            basicAuth("anonymous", sharePassword)
-            setBody(state.csv)
+            timeout {
+                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
+            }
+            basicAuth("anonymous", statePassword)
+            setBody(state.data)
         }
         println(resp.bodyAsText())
     }
 
-    data class State(val csv: String) {
+    /**
+    # state: running|idle
+    # updatedAt: <zoned-date-time>
+    # processed: [<etag>\n, ...]
+    <updatedAt>;<processed>
+     */
+    data class State(val data: String) {
 
         private val formatter: DateTimeFormatter = DateTimeFormatter.ISO_ZONED_DATE_TIME
-        private var files: Set<File> = csv.lines().drop(1).map { line ->
-            val (lastModified, state, file) = line.split(",")
-            File(file, state, ZonedDateTime.parse(lastModified, formatter))
-        }.toSet()
+        private var state: String = data.split(";")[0].trim().ifEmpty { "idle" }
+        private var updatedAt: ZonedDateTime? =
+            data.split(";")[1].trim().ifEmpty { null }?.let { ZonedDateTime.parse(it, formatter) }
+        private var etags: Set<String> = data.split(";")[2].split(",").toSet()
 
         fun isBusy(): Boolean {
-            return false
+            val timeout: Duration = 3.minutes
+            return state == "running" && updatedAt?.plus(timeout.toJavaDuration())
+                ?.isBefore(ZonedDateTime.now()) == true
         }
 
-        fun unprocessed(candidates: Set<File>): Set<File> {
-            return candidates.filter { c -> files.none { f -> f.name == c.name } }
+        fun start(): State {
+            return State("running;${now()};${etags.joinToString(",")}")
+        }
+
+        fun unprocessed(candidates: Set<File>): SortedSet<File> {
+            return candidates.filter { c -> etags.none { etag -> etag == c.etag } }
                 .toSortedSet(compareBy { it.lastModified })
         }
 
         fun done(file: File): State {
-            return State(csv + "\n${ZonedDateTime.now()},done,${file.name}")
+            return State("running;${now()};${etags.joinToString(",")},${file.etag}")
         }
+
+        fun done(): State {
+            return State("idle;${now()};${etags.joinToString(",")}")
+        }
+
+        private fun now(): String? = formatter.format(ZonedDateTime.now())
     }
 
-    data class File(val name: String, val state: String, val lastModified: ZonedDateTime) {
+    data class File(val name: String, val etag: String, val lastModified: ZonedDateTime) {
 
     }
 }
@@ -263,7 +328,7 @@ data class Prop(
 
     @XmlSerialName("getetag", "DAV:", "d")
     @XmlElement(true)
-    val getEtag: String? = null,
+    val getEtag: String,
 
     @XmlSerialName("getcontenttype", "DAV:", "d")
     @XmlElement(true)
