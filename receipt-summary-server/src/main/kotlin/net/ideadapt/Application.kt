@@ -84,6 +84,11 @@ val syncWorkerMutex = Mutex()
 val nx = NxClient()
 val ai = AiClient()
 
+// TODO nextcloud create a new etag if the same file is deleted and uploaded again
+//  this results in another analysis for a (potentially) already analyzed file,
+//  which will finally append again the to analyzed csv.
+//  we could use the filename instead of etag, but then - renamed files cause the same problem.
+//  in the final app vision, neither renames nor re-uploads can happen (at least not via app APIs).
 suspend fun sync() {
     syncWorkerMutex.withLock {
         var state = nx.state()
@@ -91,9 +96,9 @@ suspend fun sync() {
         val candidateFiles = nx.files()
         state.unprocessed(candidateFiles).forEach { nextFile ->
             val buffer = nx.file(nextFile.name)
-            ai.analyze(buffer, nextFile.name)
-
-            // TODO store analysis
+            val analysisResult = ai.analyze(buffer, nextFile.name)
+            // TODO how exactly are exception treated? do they stop the program or not?
+            nx.storeAnalysisResult(analysisResult)
 
             state = state.done(nextFile)
             nx.storeState(state)
@@ -106,29 +111,38 @@ suspend fun sync(file: File) {
         var state = nx.state()
 
         val buffer = nx.file(file.name)
-        ai.analyze(buffer, file.name)
-
-        // TODO store analysis
+        val analysisResult = ai.analyze(buffer, file.name)
+        nx.storeAnalysisResult(analysisResult)
 
         state = state.done(file)
         nx.storeState(state)
     }
 }
 
+/**
+ * NextCloud WebDAV client featuring methods to read and write files based on shares.
+ *
+ * Requires server IP to be ignored for NextCloud bruteforce detection:
+ *  https://docs.nextcloud.com/server/29/admin_manual/configuration_server/bruteforce_configuration.html
+ *
+ * @See https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/basic.html
+ **/
 data class NxClient(
     private val shareId: String = requireNotNull(System.getenv("SHARE_ID")) { "SHARE_ID missing" },
     private val sharePassword: String = requireNotNull(System.getenv("SHARE_PASSWORD")) { "SHARE_PASSWORD missing" },
     private val stateId: String = requireNotNull(System.getenv("STATE_ID")) { "STATE_ID missing" },
     private val statePassword: String = requireNotNull(System.getenv("STATE_PASSWORD")) { "STATE_PASSWORD missing" },
+    private val analyzedId: String = requireNotNull(System.getenv("ANALYZED_ID")) { "ANALYZED_ID missing" },
+    private val analyzedPassword: String = requireNotNull(System.getenv("ANALYZED_PASSWORD")) { "ANALYZED_PASSWORD missing" },
     private val client: HttpClient = HttpClient(CIO) {
         install(HttpTimeout)
     },
     private val nxFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss z"),
 ) {
-
     private val logger = LoggerFactory.getLogger(this.javaClass)
 
     suspend fun files(): SortedSet<File> {
+        logger.info("getting files")
         val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId") {
             method = HttpMethod("PROPFIND")
             timeout {
@@ -165,11 +179,13 @@ data class NxClient(
                 }
             }
 
+        logger.info("getting files: found ${files.size} files")
+
         return files.toSortedSet(compareBy { it.lastModified })
     }
 
     suspend fun file(fileName: String): Buffer {
-        // https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/state.csv
+        logger.info("getting file $fileName")
         val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId/${fileName}") {
             method = HttpMethod("GET")
             timeout {
@@ -192,11 +208,13 @@ data class NxClient(
                 )
             )
         }
+        logger.info("found file $fileName, size: ${resp.headers["Content-Length"]} bytes")
 
         return Buffer().readFrom(resp.bodyAsChannel().toInputStream())
     }
 
     suspend fun state(): State {
+        logger.info("getting state")
         val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$stateId") {
             method = HttpMethod("GET")
             timeout {
@@ -217,12 +235,14 @@ data class NxClient(
                 )
             )
         }
+        logger.info("found state, size: ${resp.headers["Content-Length"]} bytes")
 
         val csv = resp.bodyAsText()
         return State(csv)
     }
 
     suspend fun storeState(state: State) {
+        logger.info("storing state ${state.csv.take(50)}...")
         val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$stateId") {
             method = HttpMethod("PUT")
             timeout {
@@ -238,12 +258,68 @@ data class NxClient(
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "Error storing state $stateId. status: %s, body: %s",
+                    "Error storing state $stateId. status: %s, body: %s ...",
+                    resp.status,
+                    resp.bodyAsText().take(200)
+                )
+            )
+        }
+        logger.info("stored state")
+    }
+
+    private suspend fun analyzed(): String {
+        logger.info("getting analyzed")
+        val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$analyzedId") {
+            method = HttpMethod("GET")
+            timeout {
+                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
+            }
+            basicAuth("anonymous", analyzedPassword)
+            retry {
+                maxRetries = 1
+                constantDelay(1000)
+            }
+        }
+        if (!resp.status.isSuccess()) {
+            throw IllegalStateException(
+                String.format(
+                    "Error getting analyzed $analyzedId. status: %s, body: %s",
                     resp.status,
                     resp.bodyAsText()
                 )
             )
         }
+        logger.info("found analyzed, size: ${resp.headers["Content-Length"]} bytes")
+
+        return resp.bodyAsText()
+    }
+
+    suspend fun storeAnalysisResult(analysisResult: FileAnalysisResult) {
+        logger.info("storing analysis result ...${analysisResult.csv.takeLast(50)}")
+        val existingAnalysis = analyzed()
+        val newAnalysis = existingAnalysis + "\n" + analysisResult.csv
+        val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$analyzedId") {
+            method = HttpMethod("PUT")
+            timeout {
+                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
+            }
+            basicAuth("anonymous", analyzedPassword)
+            retry {
+                maxRetries = 1
+                constantDelay(1000)
+            }
+            setBody(newAnalysis)
+        }
+        if (!resp.status.isSuccess()) {
+            throw IllegalStateException(
+                String.format(
+                    "Error storing analysis result $analysisResult. status: %s, body: %s ...",
+                    resp.status,
+                    resp.bodyAsText().take(200)
+                )
+            )
+        }
+        logger.info("stored analysis result")
     }
 
     data class State(val csv: String) {
@@ -390,14 +466,19 @@ fun parseXml(xml: String): Multistatus {
     return xmlParser.decodeFromString(xml)
 }
 
-
+/**
+ * OpenAI client featuring methods to analyze file contents with following specializations:
+ *  - extract line items and other metadata in a receipt of Migros
+ */
 class AiClient(
     private val token: String = requireNotNull(System.getenv("OPEN_AI_TOKEN")) { "OPEN_AI_TOKEN missing" },
     private val ai: OpenAI = OpenAI(config = OpenAIConfig(token = token))
 ) {
+    private val logger = LoggerFactory.getLogger(this.javaClass)
 
     @OptIn(BetaOpenAI::class)
     suspend fun analyze(content: Buffer, fileName: String): FileAnalysisResult {
+        logger.info("analyzing $fileName")
         val aiFile = ai.file(
             FileUpload(
                 purpose = Purpose("assistants"),
@@ -411,7 +492,7 @@ class AiClient(
             AssistantRequest(
                 name = assistantName,
                 instructions = """
-        |You can read tabular data from a shopping receipt and output this data in propper CSV format.
+        |You can read tabular data from a shopping receipt and output this data in proper CSV format.
         |You never include anything but the raw CSV rows. You omit the surrounding markdown code blocks.
         |Make sure you never remove the header row containing the column titles.
         |You always add an extra column at the end called 'Category', which categorizes the shopping item based on its name.
@@ -448,6 +529,8 @@ class AiClient(
         }
             .map { it.text.value }
             .dropLast(1)
+
+        logger.info("analyzed $fileName, line items: ${csv.size}")
 
         return FileAnalysisResult(csv = csv.joinToString("\n"))
     }

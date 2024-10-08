@@ -28,8 +28,9 @@ Authorization: Basic ... ...
 
 ### get file
 # GET https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/state.csv
-GET https://ideadapt.net/nextcloud/public.php/dav/files/{{state-id}}
-Authorization: Basic anonymous {{state-password}}
+# GET https://ideadapt.net/nextcloud/public.php/dav/files/{{state-id}}
+GET https://ideadapt.net/nextcloud/public.php/dav/files/{{analyzed-id}}
+Authorization: Basic anonymous {{analyzed-password}}
 
 ### update file
 PUT https://ideadapt.net/nextcloud/public.php/dav/files/{{state-id}}

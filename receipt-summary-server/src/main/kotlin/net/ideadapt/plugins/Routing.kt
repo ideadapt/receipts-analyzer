@@ -12,7 +12,6 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
-import net.ideadapt.AiClient
 import net.ideadapt.NxClient.File
 import net.ideadapt.sync
 import org.intellij.lang.annotations.Language
@@ -111,8 +110,7 @@ fun Application.configureRouting() {
                             val fileName = part.originalFileName as String
                             buffer.readFrom(part.streamProvider())
 
-                            val aiClient = AiClient()
-                            aiClient.analyze(buffer, fileName)
+                            // TODO nx.storeFile(buffer, fileName)
                         }
 
                         else -> {}
