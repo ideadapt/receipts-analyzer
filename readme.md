@@ -3,6 +3,10 @@
 Let AI analyze and categorize the line items on your receipts.
 The result is a CSV file that can be used to create insightful reports.
 
+## Setup
+
+TODO
+
 ## Feature Ideas
 
 - Specialized own UI with statistics (works out of the box today by copy&paste analysis result CSV to any spreadsheet
