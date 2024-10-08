@@ -15,3 +15,4 @@ The result is a CSV file that can be used to create insightful reports.
 - connect client to kotlin server. remove deno server
 - deploy docker to fly.io.
 - serve client assets within server (also in dev env?).
+- deal with OpenAI quota errors (back off / retry). 
