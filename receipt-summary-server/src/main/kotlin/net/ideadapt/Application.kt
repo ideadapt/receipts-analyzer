@@ -1,5 +1,21 @@
 package net.ideadapt
 
+import com.aallam.openai.api.BetaOpenAI
+import com.aallam.openai.api.assistant.AssistantRequest
+import com.aallam.openai.api.assistant.FileSearchResources
+import com.aallam.openai.api.assistant.ToolResources
+import com.aallam.openai.api.core.Role
+import com.aallam.openai.api.core.Status
+import com.aallam.openai.api.file.FileSource
+import com.aallam.openai.api.file.FileUpload
+import com.aallam.openai.api.file.Purpose
+import com.aallam.openai.api.message.MessageContent
+import com.aallam.openai.api.run.ThreadRunRequest
+import com.aallam.openai.api.thread.ThreadMessage
+import com.aallam.openai.api.thread.threadRequest
+import com.aallam.openai.api.vectorstore.VectorStoreRequest
+import com.aallam.openai.client.OpenAI
+import com.aallam.openai.client.OpenAIConfig
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
@@ -9,6 +25,7 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
+import io.ktor.utils.io.jvm.javaio.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -18,23 +35,22 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import net.ideadapt.NxClient.File
+import net.ideadapt.plugins.FileAnalysisResult
 import net.ideadapt.plugins.configureHTTP
 import net.ideadapt.plugins.configureRouting
 import net.ideadapt.plugins.configureSerialization
 import nl.adaptivity.xmlutil.serialization.XML
 import nl.adaptivity.xmlutil.serialization.XmlElement
 import nl.adaptivity.xmlutil.serialization.XmlSerialName
+import okio.Buffer
 import org.intellij.lang.annotations.Language
+import org.slf4j.LoggerFactory
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.toJavaDuration
 
 fun main() {
-
     embeddedServer(
         factory = Netty,
         environment = applicationEngineEnvironment {
@@ -58,42 +74,43 @@ fun main() {
     }
 }
 
-val workerMutex = Mutex()
+fun Application.receiptsModule() {
+    configureHTTP()
+    configureSerialization()
+    configureRouting()
+}
+
+val syncWorkerMutex = Mutex()
 val nx = NxClient()
+val ai = AiClient()
 
 suspend fun sync() {
-    workerMutex.withLock {
+    syncWorkerMutex.withLock {
         var state = nx.state()
-        state = state.start()
-        nx.storeState(state)
 
         val candidateFiles = nx.files()
         state.unprocessed(candidateFiles).forEach { nextFile ->
-            // try buffer = nx.file(nextFile)
-            // ai.analyze(buffer)
-            delay(5.seconds)
+            val buffer = nx.file(nextFile.name)
+            ai.analyze(buffer, nextFile.name)
+
+            // TODO store analysis
+
             state = state.done(nextFile)
             nx.storeState(state)
         }
-
-        state = state.done()
-        nx.storeState(state)
     }
 }
 
 suspend fun sync(file: File) {
-    workerMutex.withLock {
+    syncWorkerMutex.withLock {
         var state = nx.state()
-        state = state.start()
-        nx.storeState(state)
 
-        // try buffer = nx.file(nextFile)
-        // ai.analyze(buffer)
-        delay(5.seconds)
+        val buffer = nx.file(file.name)
+        ai.analyze(buffer, file.name)
+
+        // TODO store analysis
+
         state = state.done(file)
-        nx.storeState(state)
-
-        state = state.done()
         nx.storeState(state)
     }
 }
@@ -106,30 +123,10 @@ data class NxClient(
     private val client: HttpClient = HttpClient(CIO) {
         install(HttpTimeout)
     },
-    private val nxFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss z")
+    private val nxFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss z"),
 ) {
 
-    // TODO could also be just the folders etag, more simple than date, but less information
-    suspend fun modifiedSince(since: ZonedDateTime?): Boolean {
-        if (since == null) return true
-
-        val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId") {
-            method = HttpMethod("PROPFIND")
-            timeout {
-                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
-            }
-            basicAuth("anonymous", sharePassword)
-            headers {
-                append("Depth", "0")
-            }
-        }
-
-        val xml = resp.bodyAsText()
-        val lastModifiedString = xml.substringAfter("<d:getlastmodified>").substringBefore("</d:getlastmodified>")
-        val lastModified = ZonedDateTime.parse(lastModifiedString, nxFormatter)
-
-        return lastModified.isAfter(since)
-    }
+    private val logger = LoggerFactory.getLogger(this.javaClass)
 
     suspend fun files(): SortedSet<File> {
         val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId") {
@@ -138,7 +135,17 @@ data class NxClient(
                 requestTimeoutMillis = 60.seconds.inWholeMilliseconds
             }
             basicAuth("anonymous", sharePassword)
+            retry {
+                maxRetries = 1
+                constantDelay(1000)
+            }
         }
+
+        if (!resp.status.isSuccess()) {
+            logger.error("Error getting files of folder $shareId. status: {}, body: {}", resp.status, resp.bodyAsText())
+            return sortedSetOf<File>()
+        }
+
         val xml = resp.bodyAsText()
         val parsedXml = parseXml(xml)
         val files = mutableSetOf<File>()
@@ -150,7 +157,7 @@ data class NxClient(
                 folderFiles.forEach { f ->
                     files.add(
                         File(
-                            name = r.href,
+                            name = r.href.substringAfterLast("/"),
                             etag = f.prop.getEtag.replace("\"", ""),
                             lastModified = ZonedDateTime.parse(f.prop.getLastModified, nxFormatter)
                         )
@@ -161,6 +168,34 @@ data class NxClient(
         return files.toSortedSet(compareBy { it.lastModified })
     }
 
+    suspend fun file(fileName: String): Buffer {
+        // https://ideadapt.net/nextcloud/public.php/dav/files/{{share-id}}/state.csv
+        val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$shareId/${fileName}") {
+            method = HttpMethod("GET")
+            timeout {
+                requestTimeoutMillis = 60.seconds.inWholeMilliseconds
+            }
+            basicAuth("anonymous", sharePassword)
+            retry {
+                maxRetries = 1
+                constantDelay(1000)
+            }
+        }
+
+        if (!resp.status.isSuccess()) {
+            logger.error("Error getting files of folder $shareId. status: {}, body: {}", resp.status, resp.bodyAsText())
+            throw IllegalStateException(
+                String.format(
+                    "Error getting file $$shareId/$fileName. status: %s, body: %s",
+                    resp.status,
+                    resp.bodyAsText()
+                )
+            )
+        }
+
+        return Buffer().readFrom(resp.bodyAsChannel().toInputStream())
+    }
+
     suspend fun state(): State {
         val resp = client.request("https://ideadapt.net/nextcloud/public.php/dav/files/$stateId") {
             method = HttpMethod("GET")
@@ -168,9 +203,23 @@ data class NxClient(
                 requestTimeoutMillis = 20.seconds.inWholeMilliseconds
             }
             basicAuth("anonymous", statePassword)
+            retry {
+                maxRetries = 1
+                constantDelay(1000)
+            }
         }
+        if (!resp.status.isSuccess()) {
+            throw IllegalStateException(
+                String.format(
+                    "Error getting state $stateId. status: %s, body: %s",
+                    resp.status,
+                    resp.bodyAsText()
+                )
+            )
+        }
+
         val csv = resp.bodyAsText()
-        return State(csv.trim().ifEmpty { ";;" })
+        return State(csv)
     }
 
     suspend fun storeState(state: State) {
@@ -180,54 +229,38 @@ data class NxClient(
                 requestTimeoutMillis = 20.seconds.inWholeMilliseconds
             }
             basicAuth("anonymous", statePassword)
-            setBody(state.data)
+            retry {
+                maxRetries = 1
+                constantDelay(1000)
+            }
+            setBody(state.csv)
         }
-        println(resp.bodyAsText())
+        if (!resp.status.isSuccess()) {
+            throw IllegalStateException(
+                String.format(
+                    "Error storing state $stateId. status: %s, body: %s",
+                    resp.status,
+                    resp.bodyAsText()
+                )
+            )
+        }
     }
 
-    /**
-    # state: running|idle
-    # updatedAt: <zoned-date-time>
-    # processed: [<etag>\n, ...]
-    <updatedAt>;<processed>
-     */
-    data class State(val data: String) {
-
-        private val formatter: DateTimeFormatter = DateTimeFormatter.ISO_ZONED_DATE_TIME
-        private var state: String = data.split(";")[0].trim().ifEmpty { "idle" }
-        private var updatedAt: ZonedDateTime? =
-            data.split(";")[1].trim().ifEmpty { null }?.let { ZonedDateTime.parse(it, formatter) }
-        private var etags: Set<String> = data.split(";")[2].split(",").toSet()
-
-        fun isBusy(): Boolean {
-            val timeout: Duration = 3.minutes
-            return state == "running" && updatedAt?.plus(timeout.toJavaDuration())
-                ?.isBefore(ZonedDateTime.now()) == true
-        }
-
-        fun start(): State {
-            return State("running;${now()};${etags.joinToString(",")}")
-        }
+    data class State(val csv: String) {
+        private val etags: Set<String> = csv.split(",").toSet()
 
         fun unprocessed(candidates: Set<File>): SortedSet<File> {
-            return candidates.filter { c -> etags.none { etag -> etag == c.etag } }
+            return candidates
+                .filter { c -> etags.none { etag -> etag == c.etag } }
                 .toSortedSet(compareBy { it.lastModified })
         }
 
         fun done(file: File): State {
-            return State("running;${now()};${etags.joinToString(",")},${file.etag}")
+            return State(etags.plus(file.etag).joinToString(","))
         }
-
-        fun done(): State {
-            return State("idle;${now()};${etags.joinToString(",")}")
-        }
-
-        private fun now(): String? = formatter.format(ZonedDateTime.now())
     }
 
-    data class File(val name: String, val etag: String, val lastModified: ZonedDateTime) {
-
-    }
+    data class File(val name: String, val etag: String, val lastModified: ZonedDateTime)
 }
 
 @Language("XML")
@@ -277,12 +310,6 @@ val xml = """
         </d:response>
     </d:multistatus>
 """.trimIndent()
-
-fun Application.receiptsModule() {
-    configureHTTP()
-    configureSerialization()
-    configureRouting()
-}
 
 @Serializable
 @XmlSerialName("multistatus", "DAV:", "d")
@@ -361,4 +388,67 @@ fun parseXml(xml: String): Multistatus {
     }
 
     return xmlParser.decodeFromString(xml)
+}
+
+
+class AiClient(
+    private val token: String = requireNotNull(System.getenv("OPEN_AI_TOKEN")) { "OPEN_AI_TOKEN missing" },
+    private val ai: OpenAI = OpenAI(config = OpenAIConfig(token = token))
+) {
+
+    @OptIn(BetaOpenAI::class)
+    suspend fun analyze(content: Buffer, fileName: String): FileAnalysisResult {
+        val aiFile = ai.file(
+            FileUpload(
+                purpose = Purpose("assistants"),
+                file = FileSource(name = fileName, source = content)
+            )
+        )
+        val vectorStore = ai.createVectorStore(VectorStoreRequest(name = "receipts", fileIds = listOf(aiFile.id)))
+
+        val assistantName = "asst_pdf_receipts_reader_v7"
+        val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
+            AssistantRequest(
+                name = assistantName,
+                instructions = """
+        |You can read tabular data from a shopping receipt and output this data in propper CSV format.
+        |You never include anything but the raw CSV rows. You omit the surrounding markdown code blocks.
+        |Make sure you never remove the header row containing the column titles.
+        |You always add an extra column at the end called 'Category', which categorizes the shopping item based on its name.
+        |The receipts are in german, so you have to use german category names. Try to use one of the following category names: Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck.
+        |You may add another category if none of the examples match.Add another extra column at the end called 'Datetime' that contains the date and time of the receipt. The receipt date and time value is the same for every shopping item.
+        |Add another extra column at the end called 'Seller' that contains the name of the receipt issuer (e.g. store name). The seller value is the same for every shopping item.
+        |If the seller name contains one of: 'Migros', 'Coop', 'Aldi', 'Lidl', use that short form.
+        |""".trimMargin()
+            )
+        )
+
+        val aiThreadRun = ai.createThreadRun(
+            request = ThreadRunRequest(
+                assistantId = assistant.id,
+                thread = threadRequest {
+                    toolResources =
+                        ToolResources(fileSearch = FileSearchResources(vectorStoreIds = listOf(vectorStore.id)))
+                    messages = listOf(
+                        ThreadMessage(
+                            content = "Extract tabular data from attached receipt. The columns in the receipt are Artikelbezeichnung, Menge, Preis, Total.",
+                            role = Role.User
+                        )
+                    )
+                }
+            ))
+
+        do {
+            delay(1500)
+            val retrievedRun = ai.getRun(threadId = aiThreadRun.threadId, runId = aiThreadRun.id)
+        } while (retrievedRun.status != Status.Completed)
+
+        val csv = ai.messages(aiThreadRun.threadId).map {
+            it.content.first() as? MessageContent.Text ?: error("Expected MessageContent.Text")
+        }
+            .map { it.text.value }
+            .dropLast(1)
+
+        return FileAnalysisResult(csv = csv.joinToString("\n"))
+    }
 }
