@@ -9,3 +9,9 @@ The result is a CSV file that can be used to create insightful reports.
   app)
 - Connect Migros API (unofficial scrapers exist)
 - Basic UI to upload receipts (MVP: link to nextcloud share UI) and download analysis result CSV
+
+## TODO
+
+- connect client to kotlin server. remove deno server
+- deploy docker to fly.io.
+- serve client assets within server (also in dev env?).
