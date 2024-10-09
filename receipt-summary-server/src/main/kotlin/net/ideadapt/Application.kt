@@ -58,9 +58,9 @@ fun Application.receiptsModule() {
 }
 
 class Worker(
-    val nx: NxClient = NxClient(),
-    val ai: AiClient = AiClient(),
-    val syncWorkerMutex: Mutex = Mutex(),
+    private val nx: NxClient = NxClient(),
+    private val ai: AiClient = AiClient(),
+    private val syncWorkerMutex: Mutex = Mutex(),
 ) {
     // TODO nextcloud create a new etag if the same file is deleted and uploaded again
     //  this results in another analysis for a (potentially) already analyzed file,
@@ -105,12 +105,12 @@ class Worker(
 
 data class AnalysisResult(
     val csv: String,
-    val header: String = csv.lines()[0],
+    val header: String = csv.lines()[0].trim(),
     val lineItems: Set<LineItem> = csv.lines().drop(1).map { LineItem(it) }.toSet()
 ) {
 
     data class LineItem(val csv: String) {
-        private val parts: List<String> by lazy { csv.split(",") }
+        private val parts: List<String> by lazy { csv.split(",").map { it.trim() } }
         val articleName = parts[0]
         val quantity = parts[1]
         val itemPrice = parts[2]

@@ -1,5 +1,6 @@
 val kotlin_version: String by project
 val koin_version: String by project
+val kotest_version: String by project
 val logback_version: String by project
 
 plugins {
@@ -40,6 +41,7 @@ dependencies {
     implementation(project.dependencies.platform("io.insert-koin:koin-bom:$koin_version"))
     implementation("io.insert-koin:koin-core")
     implementation("io.insert-koin:koin-ktor")
+    testImplementation("io.kotest:kotest-assertions-core:$kotest_version")
 }
 
 ktor {
