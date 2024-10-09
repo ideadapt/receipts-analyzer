@@ -9,7 +9,6 @@ import io.ktor.http.*
 import io.ktor.utils.io.jvm.javaio.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
-import net.ideadapt.plugins.FileAnalysisResult
 import nl.adaptivity.xmlutil.serialization.XML
 import nl.adaptivity.xmlutil.serialization.XmlElement
 import nl.adaptivity.xmlutil.serialization.XmlSerialName
@@ -142,7 +141,7 @@ data class NxClient(
         logger.info("stored state")
     }
 
-    private suspend fun analyzed(): String {
+    suspend fun analyzed(): AnalysisResult {
         logger.info("getting analyzed")
         val resp = client.request("$nxRoot/public.php/dav/files/$analyzedId") {
             applyRequestParams("GET", password = analyzedPassword)
@@ -158,22 +157,19 @@ data class NxClient(
         }
         logger.info("found analyzed, size: ${resp.headers["Content-Length"]} bytes")
 
-        return resp.bodyAsText()
+        return AnalysisResult(resp.bodyAsText())
     }
 
-    suspend fun storeAnalysisResult(analysisResult: FileAnalysisResult) {
-        logger.info("storing analysis result ...${analysisResult.csv.takeLast(50)}")
-        val existingAnalysis = analyzed()
-        // TODO merge duplicate line items (key: Artikelbezeichnung+Preis+Datum)
-        val newAnalysis = existingAnalysis + "\n" + analysisResult.csv
+    suspend fun storeAnalysisResult(analysis: AnalysisResult) {
+        logger.info("storing analysis result ...${analysis.csv.takeLast(50)}")
         val resp = client.request("$nxRoot/public.php/dav/files/$analyzedId") {
             applyRequestParams("PUT", password = analyzedPassword)
-            setBody(newAnalysis)
+            setBody(analysis)
         }
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "Error storing analysis result ${analysisResult.csv.takeLast(50)}. status: %s, body: %s ...",
+                    "Error storing analysis result ${analysis.csv.takeLast(50)}. status: %s, body: %s ...",
                     resp.status,
                     resp.bodyAsText().take(200)
                 )

@@ -1,4 +1,5 @@
 val kotlin_version: String by project
+val koin_version: String by project
 val logback_version: String by project
 
 plugins {
@@ -36,6 +37,9 @@ dependencies {
     implementation("io.ktor:ktor-client-java")
     implementation("io.ktor:ktor-client-content-negotiation")
     implementation("io.github.pdvrieze.xmlutil:serialization-jvm:0.90.1")
+    implementation(project.dependencies.platform("io.insert-koin:koin-bom:$koin_version"))
+    implementation("io.insert-koin:koin-core")
+    implementation("io.insert-koin:koin-ktor")
 }
 
 ktor {

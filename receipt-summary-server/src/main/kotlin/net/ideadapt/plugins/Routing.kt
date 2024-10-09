@@ -13,8 +13,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
 import net.ideadapt.NxClient.File
-import net.ideadapt.sync
+import net.ideadapt.Worker
 import org.intellij.lang.annotations.Language
+import org.koin.java.KoinJavaComponent.inject
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.*
@@ -72,6 +73,7 @@ private val json = Json {
 }
 
 fun Application.configureRouting() {
+    val worker by inject<Worker>(Worker::class.java)
 
     routing {
         post("/hooks") {
@@ -84,7 +86,7 @@ fun Application.configureRouting() {
                 launch(Dispatchers.IO) { // run in dedicated thread pool, pool size = nr of CPUs
                     val lastModified =
                         ZonedDateTime.ofInstant(Date(event.node.modifiedTime * 1000L).toInstant(), ZoneId.of("UTC"))
-                    sync(
+                    worker.sync(
                         File(
                             name = event.node.internalPath.substringAfterLast("/"),
                             lastModified = lastModified,
@@ -124,6 +126,3 @@ fun Application.configureRouting() {
         }
     }
 }
-
-@Serializable
-data class FileAnalysisResult(val csv: String)

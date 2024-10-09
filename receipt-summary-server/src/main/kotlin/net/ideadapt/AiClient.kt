@@ -17,7 +17,6 @@ import com.aallam.openai.api.vectorstore.VectorStoreRequest
 import com.aallam.openai.client.OpenAI
 import com.aallam.openai.client.OpenAIConfig
 import kotlinx.coroutines.delay
-import net.ideadapt.plugins.FileAnalysisResult
 import okio.Buffer
 import org.slf4j.LoggerFactory
 
@@ -32,7 +31,7 @@ class AiClient(
     private val logger = LoggerFactory.getLogger(this.javaClass)
 
     @OptIn(BetaOpenAI::class)
-    suspend fun analyze(content: Buffer, fileName: String): FileAnalysisResult {
+    suspend fun analyze(content: Buffer, fileName: String): AnalysisResult {
         logger.info("analyzing $fileName")
         val aiFile = ai.file(
             FileUpload(
@@ -87,6 +86,6 @@ class AiClient(
 
         logger.info("analyzed $fileName, line items: ${csv.size}")
 
-        return FileAnalysisResult(csv = csv.joinToString("\n"))
+        return AnalysisResult(csv = csv.joinToString("\n"))
     }
 }
