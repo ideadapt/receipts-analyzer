@@ -98,11 +98,20 @@ class Worker(
         val buffer = nx.file(file.name)
 
         val fileAnalysis = if (file.contentType == "text/csv") {
-            MigrosCsv(buffer).toAnalysisResult()
-            // TODO ai.categorize(result.csv.map { it.articleName }
+            val result = MigrosCsv(buffer).toAnalysisResult()
+            val categories = result.lineItems.windowed(50, 50, true).flatMap { batch ->
+                ai.categorize(batch.map { it.articleName })
+            }
+            // FIXME nr of inputs does not match nr of outputs. we have to map outputs to inputs and accept missing categories ...!?
+            result.lineItems.forEachIndexed { idx, item ->
+                item.category = categories[idx]
+            }
+            result
         } else {
-            ai.analyze(buffer, file.name)
-            // TODO convert datetime
+            val result = ai.extractCsv(buffer, file.name)
+            // TODO apply categorization (same as for csv data above)
+            // TODO convert datetime (date format depends on seller)
+            result
         }
 
         val existingAnalysis = nx.analyzed()
@@ -119,7 +128,11 @@ data class MigrosCsv(private val buffer: Buffer) {
         val csv = buffer.readUtf8()
         // Datum;Zeit;Filiale;Kassennummer;Transaktionsnummer;Artikel;Menge;Aktion;Umsatz
         // 05.09.2024;12:50:16;MM Gäuggelistrasse;267;81;Alnatura Reiswaffel;0.235;0.00;1.95
-        val lineItems = csv.lines().drop(1)
+        val lineItems = csv
+            .trim()
+            .lines()
+            .drop(1)
+            .filter { it.isNotBlank() }
             // MR = Migros restaurant
             .filter { !it.contains("CUMULUS BON") && !it.contains("Bonus-Coupon") && !it.contains(";MR ") }
             .map { line ->
@@ -127,7 +140,7 @@ data class MigrosCsv(private val buffer: Buffer) {
                 val articleName = parts[5]
                 val quantity = parts[6].toDouble()
                 val total = parts[8].toDouble()
-                val itemPrice = total / (1 / quantity)
+                val itemPrice = String.format("%.2f", (total / (1 / quantity)))
                 val category = ""
                 val dateTime = analysisResultDateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
                 val seller = "Migros"
@@ -154,7 +167,7 @@ data class AnalysisResult(
         val quantity = parts[1]
         val itemPrice = parts[2]
         val totalPrice = parts[3]
-        val category = parts[4]
+        var category = parts[4]
         val dateTime = parts[5]
         val seller = parts[6]
 

@@ -169,7 +169,7 @@ data class NxClient(
         logger.info("storing analysis result ...${analysis.csv.takeLast(50)}")
         val resp = client.request("$nxRoot/public.php/dav/files/$analyzedId") {
             applyRequestParams("PUT", password = analyzedPassword)
-            setBody(analysis)
+            setBody(analysis.csv)
         }
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
