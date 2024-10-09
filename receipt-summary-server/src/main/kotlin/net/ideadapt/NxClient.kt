@@ -71,7 +71,8 @@ data class NxClient(
                         File(
                             name = r.href.substringAfterLast("/"),
                             etag = f.prop.getEtag.replace("\"", ""),
-                            lastModified = ZonedDateTime.parse(f.prop.getLastModified, nxFormatter)
+                            lastModified = ZonedDateTime.parse(f.prop.getLastModified, nxFormatter),
+                            contentType = f.prop.getContentType
                         )
                     )
                 }
@@ -212,7 +213,7 @@ data class NxClient(
         }
     }
 
-    data class File(val name: String, val etag: String, val lastModified: ZonedDateTime)
+    data class File(val name: String, val etag: String, val lastModified: ZonedDateTime, val contentType: String?)
 }
 
 fun parseXml(xml: String): Multistatus {

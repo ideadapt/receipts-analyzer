@@ -13,9 +13,11 @@ import net.ideadapt.NxClient.File
 import net.ideadapt.plugins.configureHTTP
 import net.ideadapt.plugins.configureRouting
 import net.ideadapt.plugins.configureSerialization
+import okio.Buffer
 import org.koin.dsl.module
 import org.koin.java.KoinJavaComponent.inject
 import org.koin.ktor.plugin.Koin
+import java.time.format.DateTimeFormatter
 import kotlin.time.Duration.Companion.seconds
 
 fun main() {
@@ -94,14 +96,51 @@ class Worker(
 
     private suspend fun analyse(file: File) {
         val buffer = nx.file(file.name)
-        // TODO branch for migros CSV files (ignore MR=migros restaurant, ignore CUMULUS BON, ...)
-        val fileAnalysis = ai.analyze(buffer, file.name)
+
+        val fileAnalysis = if (file.contentType == "text/csv") {
+            MigrosCsv(buffer).toAnalysisResult()
+            // TODO ai.categorize(result.csv.map { it.articleName }
+        } else {
+            ai.analyze(buffer, file.name)
+            // TODO convert datetime
+        }
+
         val existingAnalysis = nx.analyzed()
         val mergedAnalysis = existingAnalysis.merge(fileAnalysis)
         // TODO how exactly are exception treated? do they stop the program or not?
         nx.storeAnalysisResult(mergedAnalysis)
     }
 }
+
+data class MigrosCsv(private val buffer: Buffer) {
+    private val migrosFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")
+
+    fun toAnalysisResult(): AnalysisResult {
+        val csv = buffer.readUtf8()
+        // Datum;Zeit;Filiale;Kassennummer;Transaktionsnummer;Artikel;Menge;Aktion;Umsatz
+        // 05.09.2024;12:50:16;MM Gäuggelistrasse;267;81;Alnatura Reiswaffel;0.235;0.00;1.95
+        val lineItems = csv.lines().drop(1)
+            // MR = Migros restaurant
+            .filter { !it.contains("CUMULUS BON") && !it.contains("Bonus-Coupon") && !it.contains(";MR ") }
+            .map { line ->
+                val parts = line.split(";")
+                val articleName = parts[5]
+                val quantity = parts[6].toDouble()
+                val total = parts[8].toDouble()
+                val itemPrice = total / (1 / quantity)
+                val category = ""
+                val dateTime = analysisResultDateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
+                val seller = "Migros"
+                val values = listOf(articleName, quantity, itemPrice, total, category, dateTime, seller)
+                AnalysisResult.LineItem(csv = values.joinToString(","))
+            }
+        val convertedCsv = "${analysisResultHeader}\n${lineItems.joinToString("\n")}"
+        return AnalysisResult(csv = convertedCsv)
+    }
+}
+
+const val analysisResultHeader = "Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller"
+val analysisResultDateFormat = DateTimeFormatter.ISO_DATE_TIME
 
 data class AnalysisResult(
     val csv: String,

@@ -3,6 +3,7 @@ package net.ideadapt
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.equals.shouldBeEqual
 import io.kotest.matchers.equals.shouldNotBeEqual
+import okio.Buffer
 import kotlin.test.Test
 
 class ApplicationTest {
@@ -118,5 +119,19 @@ class ApplicationTest {
             "Zahnpasta xy",
             "WC Papier"
         )
+    }
+
+    @Test
+    fun `convert migros CSV to AnalysisResult`() {
+        val csv = """
+        Datum;Zeit;Filiale;Kassennummer;Transaktionsnummer;Artikel;Menge;Aktion;Umsatz
+        05.09.2024;12:50:16;MM Gäuggelistrasse;267;81;Alnatura Reiswaffel;0.235;0.00;1.95
+        """.trimIndent()
+
+        val result = MigrosCsv(buffer = Buffer().writeUtf8(csv)).toAnalysisResult()
+        result.csv shouldBeEqual """
+            Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
+            Alnatura Reiswaffel,0.235,0.45825,1.95,,2024-09-05T12:50:16,Migros     
+        """.trimIndent().trim()
     }
 }

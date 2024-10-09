@@ -89,8 +89,9 @@ fun Application.configureRouting() {
                     worker.sync(
                         File(
                             name = event.node.internalPath.substringAfterLast("/"),
+                            etag = event.node.etag,
                             lastModified = lastModified,
-                            etag = event.node.etag
+                            contentType = event.node.mimeType
                         )
                     )
                 }
