@@ -53,7 +53,7 @@ data class NxClient(
             logger.error(
                 "Error getting files of folder $shareId. status: {}, body: {}",
                 resp.status,
-                resp.bodyAsText().take(200)
+                resp.bodyAsText().take(1000)
             )
             return sortedSetOf<File>()
         }
@@ -89,12 +89,16 @@ data class NxClient(
         }
 
         if (!resp.status.isSuccess()) {
-            logger.error("Error getting files of folder $shareId. status: {}, body: {}", resp.status, resp.bodyAsText())
+            logger.error(
+                "Error getting files of folder $shareId. status: {}, body: {}",
+                resp.status,
+                resp.bodyAsText().take(200)
+            )
             throw IllegalStateException(
                 String.format(
                     "Error getting file $$shareId/$fileName. status: %s, body: %s",
                     resp.status,
-                    resp.bodyAsText()
+                    resp.bodyAsText().take(1000)
                 )
             )
         }
@@ -113,7 +117,7 @@ data class NxClient(
                 String.format(
                     "Error getting state $stateId. status: %s, body: %s",
                     resp.status,
-                    resp.bodyAsText()
+                    resp.bodyAsText().take(1000)
                 )
             )
         }
@@ -134,7 +138,7 @@ data class NxClient(
                 String.format(
                     "Error storing state $stateId. status: %s, body: %s ...",
                     resp.status,
-                    resp.bodyAsText().take(200)
+                    resp.bodyAsText().take(1000)
                 )
             )
         }
@@ -151,7 +155,7 @@ data class NxClient(
                 String.format(
                     "Error getting analyzed $analyzedId. status: %s, body: %s",
                     resp.status,
-                    resp.bodyAsText()
+                    resp.bodyAsText().take(1000)
                 )
             )
         }
@@ -171,7 +175,7 @@ data class NxClient(
                 String.format(
                     "Error storing analysis result ${analysis.csv.takeLast(50)}. status: %s, body: %s ...",
                     resp.status,
-                    resp.bodyAsText().take(200)
+                    resp.bodyAsText().take(1000)
                 )
             )
         }
