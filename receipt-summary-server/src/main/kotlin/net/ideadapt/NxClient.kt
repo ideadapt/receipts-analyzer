@@ -47,19 +47,15 @@ data class NxClient(
     suspend fun files(): SortedSet<File> {
         logger.info("getting files")
         val resp = client.request("$nxRoot/public.php/dav/files/$shareId") {
-            method = HttpMethod("PROPFIND")
-            timeout {
-                requestTimeoutMillis = 60.seconds.inWholeMilliseconds
-            }
-            basicAuth("anonymous", sharePassword)
-            retry {
-                maxRetries = 1
-                constantDelay(1000)
-            }
+            applyRequestParams("PROPFIND", password = sharePassword)
         }
 
         if (!resp.status.isSuccess()) {
-            logger.error("Error getting files of folder $shareId. status: {}, body: {}", resp.status, resp.bodyAsText())
+            logger.error(
+                "Error getting files of folder $shareId. status: {}, body: {}",
+                resp.status,
+                resp.bodyAsText().take(200)
+            )
             return sortedSetOf<File>()
         }
 
@@ -90,15 +86,7 @@ data class NxClient(
     suspend fun file(fileName: String): Buffer {
         logger.info("getting file $fileName")
         val resp = client.request("$nxRoot/public.php/dav/files/$shareId/${fileName}") {
-            method = HttpMethod("GET")
-            timeout {
-                requestTimeoutMillis = 60.seconds.inWholeMilliseconds
-            }
-            basicAuth("anonymous", sharePassword)
-            retry {
-                maxRetries = 1
-                constantDelay(1000)
-            }
+            applyRequestParams("GET", password = sharePassword)
         }
 
         if (!resp.status.isSuccess()) {
@@ -119,15 +107,7 @@ data class NxClient(
     suspend fun state(): State {
         logger.info("getting state")
         val resp = client.request("$nxRoot/public.php/dav/files/$stateId") {
-            method = HttpMethod("GET")
-            timeout {
-                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
-            }
-            basicAuth("anonymous", statePassword)
-            retry {
-                maxRetries = 1
-                constantDelay(1000)
-            }
+            applyRequestParams("GET", password = statePassword)
         }
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
@@ -147,15 +127,7 @@ data class NxClient(
     suspend fun storeState(state: State) {
         logger.info("storing state ${state.csv.take(50)}...")
         val resp = client.request("$nxRoot/public.php/dav/files/$stateId") {
-            method = HttpMethod("PUT")
-            timeout {
-                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
-            }
-            basicAuth("anonymous", statePassword)
-            retry {
-                maxRetries = 1
-                constantDelay(1000)
-            }
+            applyRequestParams("PUT", password = statePassword)
             setBody(state.csv)
         }
         if (!resp.status.isSuccess()) {
@@ -173,15 +145,7 @@ data class NxClient(
     private suspend fun analyzed(): String {
         logger.info("getting analyzed")
         val resp = client.request("$nxRoot/public.php/dav/files/$analyzedId") {
-            method = HttpMethod("GET")
-            timeout {
-                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
-            }
-            basicAuth("anonymous", analyzedPassword)
-            retry {
-                maxRetries = 1
-                constantDelay(1000)
-            }
+            applyRequestParams("GET", password = analyzedPassword)
         }
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
@@ -200,29 +164,38 @@ data class NxClient(
     suspend fun storeAnalysisResult(analysisResult: FileAnalysisResult) {
         logger.info("storing analysis result ...${analysisResult.csv.takeLast(50)}")
         val existingAnalysis = analyzed()
+        // TODO merge duplicate line items (key: Artikelbezeichnung+Preis+Datum)
         val newAnalysis = existingAnalysis + "\n" + analysisResult.csv
         val resp = client.request("$nxRoot/public.php/dav/files/$analyzedId") {
-            method = HttpMethod("PUT")
-            timeout {
-                requestTimeoutMillis = 20.seconds.inWholeMilliseconds
-            }
-            basicAuth("anonymous", analyzedPassword)
-            retry {
-                maxRetries = 1
-                constantDelay(1000)
-            }
+            applyRequestParams("PUT", password = analyzedPassword)
             setBody(newAnalysis)
         }
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "Error storing analysis result $analysisResult. status: %s, body: %s ...",
+                    "Error storing analysis result ${analysisResult.csv.takeLast(50)}. status: %s, body: %s ...",
                     resp.status,
                     resp.bodyAsText().take(200)
                 )
             )
         }
         logger.info("stored analysis result")
+    }
+
+    private fun HttpRequestBuilder.applyRequestParams(
+        theMethod: String,
+        username: String = "anonymous",
+        password: String
+    ) {
+        method = HttpMethod(theMethod)
+        basicAuth(username, password)
+        timeout {
+            requestTimeoutMillis = 20.seconds.inWholeMilliseconds
+        }
+        retry {
+            maxRetries = 1
+            constantDelay(1000)
+        }
     }
 
     data class State(val csv: String) {

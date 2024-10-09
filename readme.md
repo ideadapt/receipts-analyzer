@@ -16,6 +16,9 @@ TODO
 
 ## TODO
 
+- remove duplicate line items
+- ingest migros csv export
+- connect migros via API wrapper
 - connect client to kotlin server. remove deno server
 - deploy docker to fly.io.
 - serve client assets within server (also in dev env?).

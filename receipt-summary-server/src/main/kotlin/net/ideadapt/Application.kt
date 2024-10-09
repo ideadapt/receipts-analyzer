@@ -61,6 +61,7 @@ suspend fun sync() {
         val candidateFiles = nx.files()
         state.unprocessed(candidateFiles).forEach { nextFile ->
             val buffer = nx.file(nextFile.name)
+            // TODO branch for migros CSV files (ignore MR=migros restaurant, ignore CUMULUS BON, ...)
             val analysisResult = ai.analyze(buffer, nextFile.name)
             // TODO how exactly are exception treated? do they stop the program or not?
             nx.storeAnalysisResult(analysisResult)
