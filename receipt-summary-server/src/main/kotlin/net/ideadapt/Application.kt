@@ -122,6 +122,9 @@ class Worker(
             .flatMap { batch ->
                 ai.categorize(batch.map { it.articleName })
             }
+        // TODO categories.size still does not always match result.lineItems.size
+        //  also sometimes a category column is not present
+        //  maybe just retry one more time on any error!?
         result.lineItems.forEachIndexed { idx, item ->
             item.category = categories[idx]
         }

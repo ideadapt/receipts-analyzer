@@ -43,8 +43,8 @@ class AiClient(
 
     @OptIn(BetaOpenAI::class)
     suspend fun categorize(itemNames: List<String>): List<String> {
-        logger.info("Categorizing ${itemNames.size} item names")
-        val assistantName = "asst_shopping_item_categorizer_v9"
+        logger.info("categorizing ${itemNames.size} item names")
+        val assistantName = "asst_shopping_item_categorizer_v10"
         val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
             AssistantRequest(
                 name = assistantName,
@@ -53,8 +53,9 @@ class AiClient(
         |You can categorize shopping items based on their german article name into one of the following categories:
         |Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck.
         |You may use other suitable category names if none of the suggested categories match.
+        |If you can not figure out a good category, just use a hyphen "-" symbol.
         |The user input is a list of item names, one item per line.
-        |For each line do the following: Output the line again, but append the category name after a comma.
+        |For each line do the following: Output the line again and append the category name after a comma.
         |Make sure, that you do not leave out any item. All items in the input have to be present in the output as well.
         |Omit introduction sentences or the like.
         |""".trimMargin()
@@ -86,7 +87,7 @@ class AiClient(
             .first() // 1: categories, 2: the prompt
 
         val categories = categoriesLine.lines().map { it.split(",")[1].trim() }
-        logger.info("Categorized ${itemNames.size} item names into ${categories.size} categories")
+        logger.info("categorized ${itemNames.size} item names into ${categories.size} categories")
         return categories
     }
 
@@ -153,7 +154,7 @@ class AiClient(
             }
             .toSet()
 
-        logger.info("Extracted ${lineItems.size} line items from $fileName")
+        logger.info("extracted ${lineItems.size} line items from $fileName")
 
         return AnalysisResult(lineItems)
     }
