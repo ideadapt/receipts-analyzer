@@ -9,6 +9,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import net.ideadapt.AnalysisResult.Companion.dateFormat
+import net.ideadapt.AnalysisResult.LineItem
 import net.ideadapt.NxClient.File
 import net.ideadapt.plugins.configureHTTP
 import net.ideadapt.plugins.configureRouting
@@ -102,14 +104,18 @@ class Worker(
             val categories = result.lineItems.windowed(50, 50, true).flatMap { batch ->
                 ai.categorize(batch.map { it.articleName })
             }
-            // FIXME nr of inputs does not match nr of outputs. we have to map outputs to inputs and accept missing categories ...!?
             result.lineItems.forEachIndexed { idx, item ->
                 item.category = categories[idx]
             }
             result
         } else {
-            val result = ai.extractCsv(buffer, file.name)
-            // TODO apply categorization (same as for csv data above)
+            val result = ai.extractLineItems(buffer, file.name)
+            val categories = result.lineItems.windowed(50, 50, true).flatMap { batch ->
+                ai.categorize(batch.map { it.articleName })
+            }
+            result.lineItems.forEachIndexed { idx, item ->
+                item.category = categories[idx]
+            }
             // TODO convert datetime (date format depends on seller)
             result
         }
@@ -131,7 +137,7 @@ data class MigrosCsv(private val buffer: Buffer) {
         val lineItems = csv
             .trim()
             .lines()
-            .drop(1)
+            .drop(1) // the csv header line
             .filter { it.isNotBlank() }
             // MR = Migros restaurant
             .filter { !it.contains("CUMULUS BON") && !it.contains("Bonus-Coupon") && !it.contains(";MR ") }
@@ -142,24 +148,20 @@ data class MigrosCsv(private val buffer: Buffer) {
                 val total = parts[8].toDouble()
                 val itemPrice = String.format("%.2f", (total / (1 / quantity)))
                 val category = ""
-                val dateTime = analysisResultDateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
+                val dateTime = dateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
                 val seller = "Migros"
                 val values = listOf(articleName, quantity, itemPrice, total, category, dateTime, seller)
-                AnalysisResult.LineItem(csv = values.joinToString(","))
+                LineItem(csv = values.joinToString(","))
             }
-        val convertedCsv = "${analysisResultHeader}\n${lineItems.joinToString("\n")}"
-        return AnalysisResult(csv = convertedCsv)
+            .toSet()
+        return AnalysisResult(lineItems)
     }
 }
 
-const val analysisResultHeader = "Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller"
-val analysisResultDateFormat = DateTimeFormatter.ISO_DATE_TIME
-
 data class AnalysisResult(
-    val csv: String,
-    val header: String = csv.lines()[0].trim(),
-    val lineItems: Set<LineItem> = csv.lines().drop(1).map { LineItem(it) }.toSet()
+    val lineItems: Set<LineItem>
 ) {
+    private val analysisResultHeader = "Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller"
 
     data class LineItem(val csv: String) {
         private val parts: List<String> by lazy { csv.split(",").map { it.trim() } }
@@ -193,11 +195,21 @@ data class AnalysisResult(
             return result
         }
 
-        override fun toString(): String = csv
+        override fun toString(): String = "$articleName,$quantity,$itemPrice,$totalPrice,$category,$dateTime,$seller"
+    }
+
+    override fun toString() = "$analysisResultHeader\n${lineItems.joinToString("\n")}"
+
+    companion object {
+        val dateFormat: DateTimeFormatter = DateTimeFormatter.ISO_DATE_TIME
     }
 }
 
+fun AnalysisResult.Companion.fromCsvWithHeader(csv: String) = AnalysisResult(
+    lineItems = csv.lines().drop(1).map { LineItem(it) }.toSet()
+)
+
 fun AnalysisResult.merge(new: AnalysisResult): AnalysisResult {
     val mergedLineItems = this.lineItems.plus(new.lineItems)
-    return AnalysisResult(csv = "${header}\n${mergedLineItems.joinToString("\n")}")
+    return AnalysisResult(mergedLineItems)
 }

@@ -137,7 +137,7 @@ data class NxClient(
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "Error storing state $stateId. status: %s, body: %s ...",
+                    "Error storing state $stateId. status: %s, body: %s...",
                     resp.status,
                     resp.bodyAsText().take(1000)
                 )
@@ -162,19 +162,19 @@ data class NxClient(
         }
         logger.info("found analyzed, size: ${resp.headers["Content-Length"]} bytes")
 
-        return AnalysisResult(resp.bodyAsText())
+        return AnalysisResult.fromCsvWithHeader(resp.bodyAsText())
     }
 
     suspend fun storeAnalysisResult(analysis: AnalysisResult) {
-        logger.info("storing analysis result ...${analysis.csv.takeLast(50)}")
+        logger.info("storing analysis result ${analysis.lineItems.take(50)}...")
         val resp = client.request("$nxRoot/public.php/dav/files/$analyzedId") {
             applyRequestParams("PUT", password = analyzedPassword)
-            setBody(analysis.csv)
+            setBody(analysis.toString())
         }
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "Error storing analysis result ${analysis.csv.takeLast(50)}. status: %s, body: %s ...",
+                    "Error storing analysis result ${analysis.lineItems.take(50)}. status: %s, body: %s...",
                     resp.status,
                     resp.bodyAsText().take(1000)
                 )
