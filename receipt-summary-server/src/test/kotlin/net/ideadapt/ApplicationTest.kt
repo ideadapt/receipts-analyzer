@@ -10,33 +10,33 @@ class ApplicationTest {
 
     @Test
     fun `merge with empty`() {
-        val existing = AnalysisResult(
+        val existing = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
             Bio Pagnolbrot dunkel 380G,1.0,3.40,3.40,Bäckerei,14.10.23 10:59,Coop
         """.trimIndent()
         )
 
-        val new = AnalysisResult(
+        val new = AnalysisResult.fromCsvWithHeader(
             csv = """
         """.trimIndent()
         )
 
         val merged = existing.merge(new)
 
-        merged.csv shouldBeEqual existing.csv
+        merged.lineItems shouldBeEqual existing.lineItems
     }
 
     @Test
     fun `merge with just header`() {
-        val existing = AnalysisResult(
+        val existing = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
             Bio Pagnolbrot dunkel 380G,1.0,3.40,3.40,Bäckerei,14.10.23 10:59,Coop
         """.trimIndent()
         )
 
-        val new = AnalysisResult(
+        val new = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
         """.trimIndent()
@@ -44,19 +44,19 @@ class ApplicationTest {
 
         val merged = existing.merge(new)
 
-        merged.csv shouldBeEqual existing.csv
+        merged.lineItems shouldBeEqual existing.lineItems
     }
 
     @Test
     fun `merge with just duplicate`() {
-        val existing = AnalysisResult(
+        val existing = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
             Bio Pagnolbrot dunkel 380G,1.0,3.40,3.40,Bäckerei,14.10.23 10:59,Coop
         """.trimIndent()
         )
 
-        val new = AnalysisResult(
+        val new = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
             Bio Pagnolbrot dunkel 380G,1.0,3.40,3.40,Bäckerei,14.10.23 10:59,Coop            
@@ -65,19 +65,19 @@ class ApplicationTest {
 
         val merged = existing.merge(new)
 
-        merged.csv shouldBeEqual existing.csv
+        merged.lineItems shouldBeEqual existing.lineItems
     }
 
     @Test
     fun `merge with duplicate and new`() {
-        val existing = AnalysisResult(
+        val existing = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
             Bio Pagnolbrot dunkel 380G,1.0,3.40,3.40,Bäckerei,14.10.23 10:59,Coop
         """.trimIndent()
         )
 
-        val new = AnalysisResult(
+        val new = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
             Bio Pagnolbrot dunkel 380G,1.0,3.40,3.40,Bäckerei,14.10.23 10:59,Coop            
@@ -87,7 +87,7 @@ class ApplicationTest {
 
         val merged = existing.merge(new)
 
-        merged.csv shouldNotBeEqual existing.csv
+        merged.lineItems shouldNotBeEqual existing.lineItems
         merged.lineItems.map { it.articleName } shouldContainExactly listOf(
             "Bio Pagnolbrot dunkel 380G",
             "Zahnpasta xy"
@@ -96,14 +96,14 @@ class ApplicationTest {
 
     @Test
     fun `merge with new`() {
-        val existing = AnalysisResult(
+        val existing = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
             Bio Pagnolbrot dunkel 380G,1.0,3.40,3.40,Bäckerei,14.10.23 10:59,Coop
         """.trimIndent()
         )
 
-        val new = AnalysisResult(
+        val new = AnalysisResult.fromCsvWithHeader(
             csv = """
             Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
             Zahnpasta xy,1.0,3.40,3.40,Hygiene,14.10.23 10:59,Coop            
@@ -113,7 +113,7 @@ class ApplicationTest {
 
         val merged = existing.merge(new)
 
-        merged.csv shouldNotBeEqual existing.csv
+        merged.lineItems shouldNotBeEqual existing.lineItems
         merged.lineItems.map { it.articleName } shouldContainExactly listOf(
             "Bio Pagnolbrot dunkel 380G",
             "Zahnpasta xy",
@@ -129,9 +129,9 @@ class ApplicationTest {
         """.trimIndent()
 
         val result = MigrosCsv(buffer = Buffer().writeUtf8(csv)).toAnalysisResult()
-        result.csv shouldBeEqual """
-            Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller
-            Alnatura Reiswaffel,0.235,0.45825,1.95,,2024-09-05T12:50:16,Migros     
+        result.toString() shouldBeEqual """
+            Artikelbezeichnung,Menge,Preis,Total,Datetime,Seller,Category
+            Alnatura Reiswaffel,0.235,0.46,1.95,2024-09-05T12:50:16,Migros,
         """.trimIndent().trim()
     }
 }

@@ -101,21 +101,11 @@ class Worker(
 
         val fileAnalysis = if (file.contentType == "text/csv") {
             val result = MigrosCsv(buffer).toAnalysisResult()
-            val categories = result.lineItems.windowed(50, 50, true).flatMap { batch ->
-                ai.categorize(batch.map { it.articleName })
-            }
-            result.lineItems.forEachIndexed { idx, item ->
-                item.category = categories[idx]
-            }
+            categorize(result)
             result
         } else {
             val result = ai.extractLineItems(buffer, file.name)
-            val categories = result.lineItems.windowed(50, 50, true).flatMap { batch ->
-                ai.categorize(batch.map { it.articleName })
-            }
-            result.lineItems.forEachIndexed { idx, item ->
-                item.category = categories[idx]
-            }
+            categorize(result)
             // TODO convert datetime (date format depends on seller)
             result
         }
@@ -124,6 +114,17 @@ class Worker(
         val mergedAnalysis = existingAnalysis.merge(fileAnalysis)
         // TODO how exactly are exception treated? do they stop the program or not?
         nx.storeAnalysisResult(mergedAnalysis)
+    }
+
+    private suspend fun categorize(result: AnalysisResult) {
+        val categories = result.lineItems
+            .windowed(50, 50, true)
+            .flatMap { batch ->
+                ai.categorize(batch.map { it.articleName })
+            }
+        result.lineItems.forEachIndexed { idx, item ->
+            item.category = categories[idx]
+        }
     }
 }
 
@@ -147,10 +148,10 @@ data class MigrosCsv(private val buffer: Buffer) {
                 val quantity = parts[6].toDouble()
                 val total = parts[8].toDouble()
                 val itemPrice = String.format("%.2f", (total / (1 / quantity)))
-                val category = ""
                 val dateTime = dateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
                 val seller = "Migros"
-                val values = listOf(articleName, quantity, itemPrice, total, category, dateTime, seller)
+                val category = ""
+                val values = listOf(articleName, quantity, itemPrice, total, dateTime, seller, category)
                 LineItem(csv = values.joinToString(","))
             }
             .toSet()
@@ -161,17 +162,20 @@ data class MigrosCsv(private val buffer: Buffer) {
 data class AnalysisResult(
     val lineItems: Set<LineItem>
 ) {
-    private val analysisResultHeader = "Artikelbezeichnung,Menge,Preis,Total,Category,Datetime,Seller"
+    private val analysisResultHeader = "Artikelbezeichnung,Menge,Preis,Total,Datetime,Seller,Category"
 
+    /**
+     * [csv] has to be a comma separated list of values, see [analysisResultHeader].
+     */
     data class LineItem(val csv: String) {
         private val parts: List<String> by lazy { csv.split(",").map { it.trim() } }
         val articleName = parts[0]
         val quantity = parts[1]
         val itemPrice = parts[2]
         val totalPrice = parts[3]
-        var category = parts[4]
-        val dateTime = parts[5]
-        val seller = parts[6]
+        val dateTime = parts[4]
+        val seller = parts[5]
+        var category = parts[6]
 
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -195,7 +199,7 @@ data class AnalysisResult(
             return result
         }
 
-        override fun toString(): String = "$articleName,$quantity,$itemPrice,$totalPrice,$category,$dateTime,$seller"
+        override fun toString(): String = "$articleName,$quantity,$itemPrice,$totalPrice,$dateTime,$seller,$category"
     }
 
     override fun toString() = "$analysisResultHeader\n${lineItems.joinToString("\n")}"

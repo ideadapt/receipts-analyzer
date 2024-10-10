@@ -2,6 +2,7 @@ package net.ideadapt
 
 import com.aallam.openai.api.BetaOpenAI
 import com.aallam.openai.api.assistant.AssistantRequest
+import com.aallam.openai.api.assistant.AssistantTool
 import com.aallam.openai.api.assistant.FileSearchResources
 import com.aallam.openai.api.assistant.ToolResources
 import com.aallam.openai.api.core.Role
@@ -100,11 +101,12 @@ class AiClient(
         )
         val vectorStore = ai.createVectorStore(VectorStoreRequest(name = "receipts", fileIds = listOf(aiFile.id)))
 
-        val assistantName = "asst_pdf_receipts_reader_v9"
+        val assistantName = "asst_pdf_receipts_reader_v14"
         val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
             AssistantRequest(
                 name = assistantName,
                 model = ModelId("gpt-4o-mini"),
+                tools = listOf(AssistantTool.FileSearch),
                 instructions = """
         |You can read tabular data from a german shopping receipt and output this data in proper CSV format.
         |You never include anything but the raw CSV rows. You omit the surrounding markdown code blocks.
@@ -141,8 +143,14 @@ class AiClient(
         }
             .map { it.text.value }
             .dropLast(1) // the prompt
-            .drop(1) // the csv header line
-            .map { AnalysisResult.LineItem(it) }
+            .flatMap { lineItemsCsv ->
+                lineItemsCsv
+                    .lines()
+                    .drop(1) // header
+                    .map { lineItemCsv ->
+                        AnalysisResult.LineItem("$lineItemCsv,") // the last column (category) is empty
+                    }
+            }
             .toSet()
 
         logger.info("Extracted ${lineItems.size} line items from $fileName")

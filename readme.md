@@ -16,7 +16,6 @@ TODO
 
 ## TODO
 
-- ingest migros csv export
 - connect migros via API wrapper
 - connect client to kotlin server. remove deno server
 - deploy docker to fly.io.
