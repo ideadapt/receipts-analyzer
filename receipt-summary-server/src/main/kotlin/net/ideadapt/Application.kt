@@ -71,10 +71,10 @@ class Worker(
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    // TODO nextcloud create a new etag if the same file is deleted and uploaded again
-    //  this results in another analysis for a (potentially) already analyzed file,
-    //  which will finally append again the to analyzed csv.
-    //  we could use the filename instead of etag, but then - renamed files cause the same problem.
+    // TODO nextcloud creates a new etag if the same file is deleted and uploaded again
+    //  this results in another analysis for a (potentially) already analyzed file
+    //  (no duplicates in analyzed.csv since items are merged),
+    //  we could use the filename instead of etag, but then renamed files cause the same problem.
     //  in the final app vision, neither renames nor re-uploads can happen (at least not via app APIs).
     suspend fun sync() {
         syncWorkerMutex.withLock {
@@ -195,6 +195,13 @@ data class AnalysisResult(
 ) {
     private val analysisResultHeader = "Artikelbezeichnung,Menge,Preis,Total,Datetime,Seller,Category"
 
+    fun merge(new: AnalysisResult): AnalysisResult {
+        val mergedLineItems = this.lineItems.plus(new.lineItems)
+        return AnalysisResult(mergedLineItems)
+    }
+
+    override fun toString() = "$analysisResultHeader\n${lineItems.joinToString("\n")}"
+
     /**
      * [csv] has to be a comma separated list of values, see [analysisResultHeader].
      */
@@ -207,6 +214,7 @@ data class AnalysisResult(
         val dateTime = normalizeDateTime(parts[4])
         val seller = parts[5]
         var category = parts[6]
+
         val id = "$articleName:$totalPrice:$dateTime:$seller"
 
         override fun equals(other: Any?): Boolean {
@@ -216,7 +224,7 @@ data class AnalysisResult(
             other as LineItem
 
             // this ignores the fact that the same article+totalPrice could be present twice in a single receipt
-            // in such rare case, only one instance is considered, the others are ignored.
+            // in such rare cases, only one instance is considered, the others are ignored.
             if (articleName != other.articleName) return false
             if (totalPrice != other.totalPrice) return false
             if (dateTime != other.dateTime) return false
@@ -234,13 +242,11 @@ data class AnalysisResult(
         }
 
         override fun toString(): String = "$articleName,$quantity,$itemPrice,$totalPrice,$dateTime,$seller,$category"
-
     }
-
-    override fun toString() = "$analysisResultHeader\n${lineItems.joinToString("\n")}"
 
     companion object {
         val outputDateFormat: DateTimeFormatter = DateTimeFormatter.ISO_DATE_TIME
+
         private val supportedInputDatePatterns = listOf(
             "yyyy-MM-dd'T'HH:mm",
             "yyyy.MM.dd HH:mm",
@@ -268,14 +274,8 @@ data class AnalysisResult(
 
             return dateTimeString
         }
+        fun fromCsvWithHeader(csv: String) = AnalysisResult(
+            lineItems = csv.lines().drop(1).map { LineItem(it) }.toSet()
+        )
     }
-}
-
-fun AnalysisResult.Companion.fromCsvWithHeader(csv: String) = AnalysisResult(
-    lineItems = csv.lines().drop(1).map { LineItem(it) }.toSet()
-)
-
-fun AnalysisResult.merge(new: AnalysisResult): AnalysisResult {
-    val mergedLineItems = this.lineItems.plus(new.lineItems)
-    return AnalysisResult(mergedLineItems)
 }
