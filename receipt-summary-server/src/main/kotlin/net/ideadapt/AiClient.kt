@@ -32,7 +32,7 @@ import org.slf4j.LoggerFactory
  *  - categorize an article name, e.g. "Steak" would be categorized as "Meat"
  */
 class AiClient(
-    private val token: String = requireNotNull(System.getenv("OPEN_AI_TOKEN")) { "OPEN_AI_TOKEN missing" },
+    private val token: String = requireNotNull(Config.get("OPEN_AI_TOKEN")) { "OPEN_AI_TOKEN missing" },
     private val ai: OpenAI = OpenAI(
         config = OpenAIConfig(
             token = token,

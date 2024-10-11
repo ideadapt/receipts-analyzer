@@ -29,12 +29,12 @@ import kotlin.time.Duration.Companion.seconds
  * @See https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/basic.html
  **/
 data class NxClient(
-    private val shareId: String = requireNotNull(System.getenv("SHARE_ID")) { "SHARE_ID missing" },
-    private val sharePassword: String = requireNotNull(System.getenv("SHARE_PASSWORD")) { "SHARE_PASSWORD missing" },
-    private val stateId: String = requireNotNull(System.getenv("STATE_ID")) { "STATE_ID missing" },
-    private val statePassword: String = requireNotNull(System.getenv("STATE_PASSWORD")) { "STATE_PASSWORD missing" },
-    private val analyzedId: String = requireNotNull(System.getenv("ANALYZED_ID")) { "ANALYZED_ID missing" },
-    private val analyzedPassword: String = requireNotNull(System.getenv("ANALYZED_PASSWORD")) { "ANALYZED_PASSWORD missing" },
+    private val shareId: String = requireNotNull(Config.get("SHARE_ID")) { "SHARE_ID missing" },
+    private val sharePassword: String = requireNotNull(Config.get("SHARE_PASSWORD")) { "SHARE_PASSWORD missing" },
+    private val stateId: String = requireNotNull(Config.get("STATE_ID")) { "STATE_ID missing" },
+    private val statePassword: String = requireNotNull(Config.get("STATE_PASSWORD")) { "STATE_PASSWORD missing" },
+    private val analyzedId: String = requireNotNull(Config.get("ANALYZED_ID")) { "ANALYZED_ID missing" },
+    private val analyzedPassword: String = requireNotNull(Config.get("ANALYZED_PASSWORD")) { "ANALYZED_PASSWORD missing" },
     private val client: HttpClient = HttpClient(CIO) {
         install(HttpTimeout)
     },

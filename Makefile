@@ -1,10 +1,7 @@
-.PHONY: server server-dev client client-dev
+.PHONY: server client client-dev
 
 server:
-	cd server && deno run --allow-net --allow-env --allow-read ./main.ts
-
-server-dev:
-	cd server && denon run --allow-net --allow-env --allow-read ./main.ts
+	cd receipt-summary-server && ./gradlew runFatJar
 
 client:
 	cd client && npm run dist

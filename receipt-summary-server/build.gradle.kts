@@ -48,12 +48,14 @@ ktor {
     docker {
         localImageName.set(rootProject.name)
         jreVersion.set(JavaVersion.VERSION_21)
-        portMappings.set(listOf(
+        portMappings.set(
+            listOf(
                 io.ktor.plugin.features.DockerPortMapping(
-                        3000,
-                        3000,
-                        io.ktor.plugin.features.DockerPortMappingProtocol.TCP
+                    3000,
+                    3000,
+                    io.ktor.plugin.features.DockerPortMappingProtocol.TCP
                 )
-        ))
+            )
+        )
     }
 }

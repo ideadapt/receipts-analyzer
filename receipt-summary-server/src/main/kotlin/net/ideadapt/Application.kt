@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.util.*
 import kotlin.time.Duration.Companion.seconds
 
 fun main() {
@@ -32,7 +33,7 @@ fun main() {
             module {
                 receiptsModule()
                 connector {
-                    port = System.getenv("SERVER_PORT")?.toInt() ?: 3000
+                    port = Config.get("SERVER_PORT")?.toInt() ?: 3000
                 }
             }
         })
@@ -61,6 +62,18 @@ fun Application.receiptsModule() {
                 single { Worker() }
             }
         ))
+    }
+}
+
+object Config {
+    private val props: Properties = Properties()
+
+    init {
+        props.load(javaClass.classLoader.getResourceAsStream(".env"))
+    }
+
+    fun get(key: String): String? {
+        return props[key]?.toString()
     }
 }
 
@@ -274,6 +287,7 @@ data class AnalysisResult(
 
             return dateTimeString
         }
+
         fun fromCsvWithHeader(csv: String) = AnalysisResult(
             lineItems = csv.lines().drop(1).map { LineItem(it) }.toSet()
         )
