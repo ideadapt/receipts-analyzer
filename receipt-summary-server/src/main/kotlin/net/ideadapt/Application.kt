@@ -19,6 +19,7 @@ import okio.Buffer
 import org.koin.dsl.module
 import org.koin.java.KoinJavaComponent.inject
 import org.koin.ktor.plugin.Koin
+import org.slf4j.LoggerFactory
 import java.time.format.DateTimeFormatter
 import kotlin.time.Duration.Companion.seconds
 
@@ -66,6 +67,8 @@ class Worker(
     private val ai: AiClient = AiClient(),
     private val syncWorkerMutex: Mutex = Mutex(),
 ) {
+    private val logger = LoggerFactory.getLogger(javaClass)
+
     // TODO nextcloud create a new etag if the same file is deleted and uploaded again
     //  this results in another analysis for a (potentially) already analyzed file,
     //  which will finally append again the to analyzed csv.
@@ -117,16 +120,37 @@ class Worker(
     }
 
     private suspend fun categorize(result: AnalysisResult) {
-        val categories = result.lineItems
+        val maxAttempts = 2
+        val articleCategories = result.lineItems
             .windowed(50, 50, true)
             .flatMap { batch ->
-                ai.categorize(batch.map { it.articleName })
+                var attempt = 0
+                var categories: List<String>
+                do {
+                    attempt++
+                    if (attempt > 1) {
+                        logger.debug("trying to categorize again, attempt: $attempt of $maxAttempts")
+                    }
+                    categories = ai.categorize(batch.map { lineItem -> "${lineItem.id},${lineItem.articleName}" })
+                } while (categories.size != batch.size && attempt < maxAttempts)
+
+                categories
             }
-        // TODO categories.size still does not always match result.lineItems.size
-        //  also sometimes a category column is not present
-        //  maybe just retry one more time on any error!?
-        result.lineItems.forEachIndexed { idx, item ->
-            item.category = categories[idx]
+
+        val idToLineItem = result.lineItems.associateBy { it.id }
+        val updatedIds = articleCategories.mapNotNull { articleCategory ->
+            val (id, _, category) = articleCategory.split(",")
+            if (!idToLineItem.containsKey(id)) {
+                logger.info("unable to apply category '$category' to line item with id '$id': id does not exist. raw article categorization result: '$articleCategory'")
+                null
+            } else {
+                idToLineItem[id]!!.category = category
+                id
+            }
+        }.toSet()
+
+        idToLineItem.keys.minus(updatedIds).forEach { notUpdatedId ->
+            idToLineItem[notUpdatedId]!!.category = "-"
         }
     }
 }
@@ -143,8 +167,11 @@ data class MigrosCsv(private val buffer: Buffer) {
             .lines()
             .drop(1) // the csv header line
             .filter { it.isNotBlank() }
-            // MR = Migros restaurant
-            .filter { !it.contains("CUMULUS BON") && !it.contains("Bonus-Coupon") && !it.contains(";MR ") }
+            .filter {
+                // MR = Migros restaurant
+                !it.contains("CUMULUS BON") && !it.contains("CUM ")
+                        && !it.contains("Bonus-Coupon") && !it.contains(";MR ")
+            }
             .map { line ->
                 val parts = line.split(";")
                 val articleName = parts[5]
@@ -179,6 +206,7 @@ data class AnalysisResult(
         val dateTime = parts[4]
         val seller = parts[5]
         var category = parts[6]
+        val id = "$articleName:$totalPrice:$dateTime:$seller"
 
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -186,6 +214,8 @@ data class AnalysisResult(
 
             other as LineItem
 
+            // this ignores the fact that the same article+totalPrice could be present twice in a single receipt
+            // in such rare case, only one instance is considered, the others are ignored.
             if (articleName != other.articleName) return false
             if (totalPrice != other.totalPrice) return false
             if (dateTime != other.dateTime) return false

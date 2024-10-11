@@ -17,6 +17,7 @@ import com.aallam.openai.api.model.ModelId
 import com.aallam.openai.api.run.ThreadRunRequest
 import com.aallam.openai.api.thread.ThreadMessage
 import com.aallam.openai.api.thread.threadRequest
+import com.aallam.openai.api.vectorstore.ExpirationPolicy
 import com.aallam.openai.api.vectorstore.VectorStoreRequest
 import com.aallam.openai.client.LoggingConfig
 import com.aallam.openai.client.OpenAI
@@ -44,7 +45,7 @@ class AiClient(
     @OptIn(BetaOpenAI::class)
     suspend fun categorize(itemNames: List<String>): List<String> {
         logger.info("categorizing ${itemNames.size} item names")
-        val assistantName = "asst_shopping_item_categorizer_v10"
+        val assistantName = "asst_shopping_item_categorizer_v13"
         val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
             AssistantRequest(
                 name = assistantName,
@@ -53,10 +54,13 @@ class AiClient(
         |You can categorize shopping items based on their german article name into one of the following categories:
         |Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck.
         |You may use other suitable category names if none of the suggested categories match.
-        |If you can not figure out a good category, just use a hyphen "-" symbol.
-        |The user input is a list of item names, one item per line.
-        |For each line do the following: Output the line again and append the category name after a comma.
-        |Make sure, that you do not leave out any item. All items in the input have to be present in the output as well.
+        |If you can not figure out a good category, think about a suitable category name again. 
+        |If you still can't figure it out just use a hyphen "-" symbol.
+        |Each line in the input starts with a technical prefix (the article id), followed by a comma and then the article name itself. 
+        |Each line in the input has the following format: <technical-prefix>,<article-name>
+        |Each line in the output has to have the following format: <technical-prefix>,<article-name>,<category>
+        |To process the user input, do the following for each line: Output the line again and append the category name after a comma.
+        |Make sure, that you do not skip any line.
         |Omit introduction sentences or the like.
         |""".trimMargin()
             )
@@ -86,9 +90,16 @@ class AiClient(
             .map { it.text.value }
             .first() // 1: categories, 2: the prompt
 
-        val categories = categoriesLine.lines().map { it.split(",")[1].trim() }
-        logger.info("categorized ${itemNames.size} item names into ${categories.size} categories")
-        return categories
+        val articleCategories = categoriesLine.lines().map {
+            // in some rare cases there is no category column, so we just fake one to not fail
+            if (it.count { c -> c == ',' } == 1) {
+                "$it,-"
+            } else {
+                it
+            }.trim()
+        }
+        logger.info("categorized ${itemNames.size} item names into ${articleCategories.size} categories")
+        return articleCategories
     }
 
     @OptIn(BetaOpenAI::class)
@@ -100,7 +111,13 @@ class AiClient(
                 file = FileSource(name = fileName, source = content)
             )
         )
-        val vectorStore = ai.createVectorStore(VectorStoreRequest(name = "receipts", fileIds = listOf(aiFile.id)))
+        val vectorStore = ai.createVectorStore(
+            VectorStoreRequest(
+                name = "receipt",
+                fileIds = listOf(aiFile.id),
+                expiresAfter = ExpirationPolicy(days = 1, anchor = "last_active_at")
+            )
+        )
 
         val assistantName = "asst_pdf_receipts_reader_v14"
         val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
