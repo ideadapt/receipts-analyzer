@@ -134,4 +134,20 @@ class ApplicationTest {
             Alnatura Reiswaffel,0.235,0.46,1.95,2024-09-05T12:50:16,Migros,
         """.trimIndent().trim()
     }
+
+    @Test
+    fun `normalize supported date time input format`() {
+        val expected = "2024-10-14T10:59:00"
+        AnalysisResult.normalizeDateTime("14.10.24 10:59") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("14-10-24 10:59") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("14.10.2024 10:59") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("14-10-2024 10:59") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("14.10.2024 10:59:00") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("14-10-2024 10:59:00") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime(expected) shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("2024-10-14 10:59:00") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("2024-10-14 10:59") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("2024.10.14 10:59:00") shouldBeEqual expected
+        AnalysisResult.normalizeDateTime("2024.10.14 10:59") shouldBeEqual expected
+    }
 }

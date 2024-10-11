@@ -45,7 +45,7 @@ class AiClient(
     @OptIn(BetaOpenAI::class)
     suspend fun categorize(itemNames: List<String>): List<String> {
         logger.info("categorizing ${itemNames.size} item names")
-        val assistantName = "asst_shopping_item_categorizer_v13"
+        val assistantName = "asst_shopping_item_categorizer_v16"
         val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
             AssistantRequest(
                 name = assistantName,
@@ -55,12 +55,11 @@ class AiClient(
         |Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck.
         |You may use other suitable category names if none of the suggested categories match.
         |If you can not figure out a good category, think about a suitable category name again. 
-        |If you still can't figure it out just use a hyphen "-" symbol.
-        |Each line in the input starts with a technical prefix (the article id), followed by a comma and then the article name itself. 
-        |Each line in the input has the following format: <technical-prefix>,<article-name>
-        |Each line in the output has to have the following format: <technical-prefix>,<article-name>,<category>
-        |To process the user input, do the following for each line: Output the line again and append the category name after a comma.
-        |Make sure, that you do not skip any line.
+        |If you still can't figure it out your last resort is to use a hyphen "-" symbol.
+        |Each line in the input has the following format (using placeholder names in < and >): <technical-prefix>,<article-name>
+        |Where neither <technical-prefix> nor <article-name> can contain a coma. So the coma is the column delimiter.
+        |To process the user input, do the following for each and every line: Output the exact input line again and just append the category name after a comma.
+        |Make sure, that you do not skip any line!
         |Omit introduction sentences or the like.
         |""".trimMargin()
             )
@@ -129,7 +128,7 @@ class AiClient(
         |You can read tabular data from a german shopping receipt and output this data in proper CSV format.
         |You never include anything but the raw CSV rows. You omit the surrounding markdown code blocks.
         |Make sure you never remove the header row containing the column titles.
-        |Add an extra column at the end called 'Datetime' that contains the date and time of the receipt. The receipt date and time value is the same for every shopping item.
+        |Add an extra column at the end called 'Datetime' that contains the literal date and time value found in the receipt (do not change the date format). The receipt date and time value is the same for every shopping item.
         |Add another extra column at the end called 'Seller' that contains the name of the receipt issuer (e.g. store name). The seller value is the same for every shopping item.
         |If the seller name contains one of: 'Migros', 'Coop', 'Aldi', 'Lidl', use that short form.
         |""".trimMargin()

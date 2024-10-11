@@ -9,7 +9,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import net.ideadapt.AnalysisResult.Companion.dateFormat
+import net.ideadapt.AnalysisResult.Companion.outputDateFormat
 import net.ideadapt.AnalysisResult.LineItem
 import net.ideadapt.NxClient.File
 import net.ideadapt.plugins.configureHTTP
@@ -20,7 +20,9 @@ import org.koin.dsl.module
 import org.koin.java.KoinJavaComponent.inject
 import org.koin.ktor.plugin.Koin
 import org.slf4j.LoggerFactory
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import kotlin.time.Duration.Companion.seconds
 
 fun main() {
@@ -109,7 +111,6 @@ class Worker(
         } else {
             val result = ai.extractLineItems(buffer, file.name)
             categorize(result)
-            // TODO convert datetime (date format depends on seller)
             result
         }
 
@@ -178,7 +179,7 @@ data class MigrosCsv(private val buffer: Buffer) {
                 val quantity = parts[6].toDouble()
                 val total = parts[8].toDouble()
                 val itemPrice = String.format("%.2f", (total / (1 / quantity)))
-                val dateTime = dateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
+                val dateTime = outputDateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
                 val seller = "Migros"
                 val category = ""
                 val values = listOf(articleName, quantity, itemPrice, total, dateTime, seller, category)
@@ -203,7 +204,7 @@ data class AnalysisResult(
         val quantity = parts[1]
         val itemPrice = parts[2]
         val totalPrice = parts[3]
-        val dateTime = parts[4]
+        val dateTime = normalizeDateTime(parts[4])
         val seller = parts[5]
         var category = parts[6]
         val id = "$articleName:$totalPrice:$dateTime:$seller"
@@ -233,12 +234,40 @@ data class AnalysisResult(
         }
 
         override fun toString(): String = "$articleName,$quantity,$itemPrice,$totalPrice,$dateTime,$seller,$category"
+
     }
 
     override fun toString() = "$analysisResultHeader\n${lineItems.joinToString("\n")}"
 
     companion object {
-        val dateFormat: DateTimeFormatter = DateTimeFormatter.ISO_DATE_TIME
+        val outputDateFormat: DateTimeFormatter = DateTimeFormatter.ISO_DATE_TIME
+        private val supportedInputDatePatterns = listOf(
+            "yyyy-MM-dd'T'HH:mm",
+            "yyyy.MM.dd HH:mm",
+            "yyyy-MM-dd HH:mm",
+            "yyyy.MM.dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss",
+            "dd.MM.yy HH:mm",
+            "dd-MM-yy HH:mm",
+            "dd.MM.yyyy HH:mm",
+            "dd-MM-yyyy HH:mm",
+            "dd.MM.yyyy HH:mm:ss",
+            "dd-MM-yyyy HH:mm:ss",
+        )
+
+        fun normalizeDateTime(dateTimeString: String): String {
+            for (pattern in supportedInputDatePatterns) {
+                try {
+                    val formatter = DateTimeFormatter.ofPattern(pattern)
+                    val parsedDateTime = LocalDateTime.parse(dateTimeString, formatter)
+                    return outputDateFormat.format(parsedDateTime)
+                } catch (e: DateTimeParseException) {
+                    // Continue trying the next pattern
+                }
+            }
+
+            return dateTimeString
+        }
     }
 }
 
