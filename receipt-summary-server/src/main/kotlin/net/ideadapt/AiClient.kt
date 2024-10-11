@@ -97,6 +97,9 @@ class AiClient(
                 it
             }.trim()
         }
+
+        ai.delete(aiThreadRun.threadId)
+
         logger.info("categorized ${itemNames.size} item names into ${articleCategories.size} categories")
         return articleCategories
     }
@@ -169,6 +172,10 @@ class AiClient(
                     }
             }
             .toSet()
+
+        ai.delete(aiFile.id)
+        ai.delete(vectorStore.id)
+        ai.delete(aiThreadRun.threadId)
 
         logger.info("extracted ${lineItems.size} line items from $fileName")
 
