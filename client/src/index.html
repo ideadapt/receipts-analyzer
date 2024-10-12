@@ -38,6 +38,17 @@
             }
         }
 
+        class LineItem {
+            articleName;
+            dateTime;
+            seller;
+            category;
+
+            constructor(properties) {
+                Object.assign(this, properties);
+            }
+        }
+
         window.receiptsApp = function () {
             return {
                 headers: [],
@@ -47,7 +58,11 @@
                     await loadAnalyzed().then(analyzed => {
                         const csv = parse(analyzed.csv)
                         this.headers = csv[0]
-                        this.items = csv.slice(1)
+                        this.items = csv.slice(1).map(csvLine => {
+                                const [articleName, quantity, price, total, dateTime, seller, category] = csvLine
+                                return new LineItem({articleName, dateTime, seller, category});
+                            }
+                        )
                     })
                 },
 
@@ -92,13 +107,17 @@
             </div>
             <table class="w-full">
                 <thead>
-                    <th class="text-xs font-normal text-left px-3 py-1">Item</th>
+                <tr>
+                </tr>
                 </thead>
                 <template x-for="item in shoppingItems">
                     <tbody>
                         <tr
                             class="odd:bg-zinc-700 even:bg-white select-none hover:cursor-pointer hover:bg-zinc-600 border-b-2 border-b-zinc-600">
-                            <td x-text="`${item}`" class="px-3 py-3 max-w-prose truncate"></td>
+                            <td x-text="`${item.dateTime}`" class="px-3 py-3 truncate" style="width: 1%"></td>
+                            <td x-text="`${item.seller}`" class="px-3 py-3 truncate" style="width: 1%"></td>
+                            <td x-text="`${item.articleName}`" class="px-3 py-3 max-w-prose truncate"></td>
+                            <td x-text="`${item.category}`" class="px-3 py-3 max-w-prose truncate"></td>
                         </tr>
                     </tbody>
                 </template>
