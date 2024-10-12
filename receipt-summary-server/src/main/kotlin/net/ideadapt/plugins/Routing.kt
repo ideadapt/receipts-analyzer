@@ -12,6 +12,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
+import net.ideadapt.NxClient
 import net.ideadapt.NxClient.File
 import net.ideadapt.Worker
 import org.intellij.lang.annotations.Language
@@ -105,6 +106,7 @@ fun Application.configureRouting() {
         post("/receipts") {
             val multipartData = call.receiveMultipart()
             val buffer: okio.Buffer = okio.Buffer()
+            val results = mutableListOf<Boolean>()
 
             multipartData.forEachPart { part ->
                 try {
@@ -113,7 +115,8 @@ fun Application.configureRouting() {
                             val fileName = part.originalFileName as String
                             buffer.readFrom(part.streamProvider())
 
-                            // TODO nx.storeFile(buffer, fileName)
+                            val nx = NxClient()
+                            results.add(nx.storeFile(buffer, fileName))
                         }
 
                         else -> {}
@@ -123,7 +126,23 @@ fun Application.configureRouting() {
                 }
             }
 
-            call.respondText("TODO")
+            if (results.isEmpty()) {
+                call.respond(HttpStatusCode.BadRequest)
+            } else {
+                val hasFailures = results.any { !it }
+                if (hasFailures) {
+                    if (results.all { !it }) {
+                        call.respond(HttpStatusCode.BadRequest)
+                    } else {
+                        call.respond(
+                            HttpStatusCode.Accepted,
+                            "Unable to store all files. ${results.count { !it }} failed."
+                        )
+                    }
+                } else {
+                    call.respond(HttpStatusCode.Accepted)
+                }
+            }
         }
     }
 }

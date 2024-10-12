@@ -9,36 +9,22 @@
 
     <script type="module">
         import config from '/src/config.js' // absolute path from parcel root
-        import {parse, stringify} from '/src/csv.mjs'
+        import {parse} from '/src/csv.mjs'
 
         let editor_password = localStorage.getItem('receipts_editor_password') || ''
 
-        async function loadState() {
-            const stateResp = await fetch(`${config.proxy_root}/gists/${config.gist_id}`)
-            if (stateResp.ok) {
-                return await stateResp.json()
-            } else {
-                throw stateResp
-            }
-        }
-
-        async function storeState({ headers, items }) {
-            const stateResp = await fetch(`${config.proxy_root}/gists/${config.gist_id}`, {
-                method: 'PATCH',
-                headers: {
-                    "content-type": "application/json",
-                    'Authorization': 'Bearer ' + editor_password
-                },
-                body: JSON.stringify({
-                    ['items.csv']: { 
-                        content: stringify([headers, ...items])
+        async function loadAnalyzed() {
+            const resp = await fetch(`${config.api_root}/analyzed`, {
+                    headers: {
+                        "content-type": "application/json",
+                        'Authorization': 'Bearer ' + editor_password
                     }
-                })
-            })
-            if (stateResp.ok) {
-                return await stateResp.json()
+                }
+            )
+            if (resp.ok) {
+                return await resp.json()
             } else {
-                tryLogin(stateResp)
+                tryLogin(resp)
             }
         }
 
@@ -58,33 +44,27 @@
                 items: [],
                 async init() {
                     console.log('init')
-                    await loadState().then(state => {
-                        const csv = parse(state['items.csv'].content)
+                    await loadAnalyzed().then(analyzed => {
+                        const csv = parse(analyzed['csv'].content)
                         this.headers = csv[0]
                         this.items = csv.slice(1)
                     })
                 },
 
-                async analyzeFile() {
+                async uploadFile() {
                     const $files = document.getElementById('files')
                     const formData = new FormData()
                     for(const file of $files.files){
                         formData.append('files[]', file)
                     }
 
-                    const resp = await fetch(config.proxy_root + '/receipts', {
+                    const resp = await fetch(config.api_root + '/receipts', {
                         method: 'POST',
                         body: formData
                     })
 
                     if (resp.ok) {
-                        const fileAnalysisResult = (await resp.json())
-                        console.log(fileAnalysisResult)
-
-                        const csv = parse(fileAnalysisResult.csv)
-                        this.headers = csv[0]
-                        this.items.push(...csv.slice(1))
-                        await storeState({ headers: this.headers, items: this.items })
+                        console.log('uploadFile done')
                     } else {
                         const err = await resp.text()
                         console.error(err)
@@ -108,7 +88,7 @@
                     <input x-ref="files" id="files" type="file" multiple
                         class="w-full overflow-clip rounded-md border border-neutral-300 bg-neutral-50/50 text-sm text-neutral-600 file:mr-4 file:cursor-pointer file:border-none file:bg-neutral-50 file:px-4 file:py-2 file:font-medium file:text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-75 dark:border-neutral-700 dark:bg-neutral-900/50 dark:text-neutral-300 dark:file:bg-neutral-900 dark:file:text-white dark:focus-visible:outline-white" />
                 </div>
-                <button x-on:click.prevent="analyzeFile()">Upload</button>
+                <button x-on:click.prevent="uploadFile()">Upload</button>
             </div>
             <table class="w-full">
                 <thead>

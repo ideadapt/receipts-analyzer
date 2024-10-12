@@ -6,6 +6,8 @@ import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.http.content.*
+import io.ktor.util.*
 import io.ktor.utils.io.jvm.javaio.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -106,6 +108,23 @@ data class NxClient(
         logger.info("found file $fileName, size: ${resp.headers["Content-Length"]} bytes")
 
         return Buffer().readFrom(resp.bodyAsChannel().toInputStream())
+    }
+
+    suspend fun storeFile(buffer: Buffer, fileName: String): Boolean {
+        val size = buffer.size
+        val resp = client.request("$nxRoot/public.php/dav/files/$shareId/$fileName") {
+            applyRequestParams("PUT", password = sharePassword)
+            contentType(ContentType.fromFileExtension(fileName).first())
+            setBody(ByteArrayContent(buffer.readByteArray(), ContentType.Application.OctetStream))
+        }
+
+        if (!resp.status.isSuccess()) {
+            logger.error("Error storing file $fileName, size: $size, response: {}", resp.bodyAsText())
+            return false
+        } else {
+            logger.info("Stored file $fileName, size: $size")
+        }
+        return true
     }
 
     suspend fun state(): State {
