@@ -53,7 +53,7 @@ data class NxClient(
 
         if (!resp.status.isSuccess()) {
             logger.error(
-                "Error getting files of folder $shareId. status: {}, body: {}",
+                "error getting files of folder $shareId. status: {}, body: {}",
                 resp.status,
                 resp.bodyAsText().take(1000)
             )
@@ -93,13 +93,13 @@ data class NxClient(
 
         if (!resp.status.isSuccess()) {
             logger.error(
-                "Error getting file '$fileName' of folder $shareId. status: {}, body: {}",
+                "error getting file '$fileName' of folder $shareId. status: {}, body: {}",
                 resp.status,
                 resp.bodyAsText().take(200)
             )
             throw IllegalStateException(
                 String.format(
-                    "Error getting file $$shareId/$fileName. status: %s, body: %s",
+                    "error getting file $$shareId/$fileName. status: %s, body: %s",
                     resp.status,
                     resp.bodyAsText().take(1000)
                 )
@@ -119,10 +119,10 @@ data class NxClient(
         }
 
         if (!resp.status.isSuccess()) {
-            logger.error("Error storing file $fileName, size: $size, response: {}", resp.bodyAsText())
+            logger.error("error storing file $fileName, size: $size, response: {}", resp.bodyAsText())
             return false
         } else {
-            logger.info("Stored file $fileName, size: $size")
+            logger.info("stored file $fileName, size: $size")
         }
         return true
     }
@@ -135,7 +135,7 @@ data class NxClient(
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "Error getting state $stateId. status: %s, body: %s",
+                    "error getting state $stateId. status: %s, body: %s",
                     resp.status,
                     resp.bodyAsText().take(1000)
                 )
@@ -173,7 +173,7 @@ data class NxClient(
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "Error getting analyzed $analyzedId. status: %s, body: %s",
+                    "error getting analyzed $analyzedId. status: %s, body: %s",
                     resp.status,
                     resp.bodyAsText().take(1000)
                 )
@@ -193,7 +193,7 @@ data class NxClient(
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "Error storing analysis result ${analysis.lineItems.take(50)}. status: %s, body: %s...",
+                    "error storing analysis result ${analysis.lineItems.take(50)}. status: %s, body: %s...",
                     resp.status,
                     resp.bodyAsText().take(1000)
                 )
