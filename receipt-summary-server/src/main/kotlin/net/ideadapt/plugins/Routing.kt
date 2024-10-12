@@ -12,6 +12,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
+import net.ideadapt.Config
 import net.ideadapt.NxClient
 import net.ideadapt.NxClient.File
 import net.ideadapt.Worker
@@ -99,11 +100,17 @@ fun Application.configureRouting() {
         }
 
         get("/analyzed") {
-            val nx = NxClient()
-            val analysisResult = nx.analyzed()
-            val csv = analysisResult.toString()
+            val secret = call.request.headers[HttpHeaders.Authorization]?.substringAfter("Bearer ")
+            if (secret != Config.get("EDITOR_SECRET")) {
+                call.respond(HttpStatusCode.Unauthorized)
+            } else {
+                val nx = NxClient()
+                val analysisResult = nx.analyzed()
+                val csv = analysisResult.toString()
 
-            call.respond(AnalyzedResponse(csv = csv))
+                call.respond(AnalyzedResponse(csv = csv))
+            }
+
         }
     }
 }

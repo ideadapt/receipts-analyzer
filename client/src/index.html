@@ -24,7 +24,7 @@
             if (resp.ok) {
                 return await resp.json()
             } else {
-                tryLogin(resp)
+                tryLogin(resp, true)
             }
         }
 
