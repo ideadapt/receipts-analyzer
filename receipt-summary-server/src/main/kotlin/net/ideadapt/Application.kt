@@ -152,19 +152,27 @@ class Worker(
     }
 
     private suspend fun categorize(result: AnalysisResult) {
-        val maxAttempts = 2
+        val maxAttempts = 4
         val articleCategories = result.lineItems
             .windowed(50, 50, true)
             .flatMap { batch ->
                 var attempt = 0
                 var categories: List<String>
+                var tooManyUnknowns: Boolean
                 do {
                     attempt++
                     if (attempt > 1) {
                         logger.debug("trying to categorize again, attempt: $attempt of $maxAttempts")
                     }
+
                     categories = ai.categorize(batch.map { lineItem -> "${lineItem.id},${lineItem.articleName}" })
-                } while (categories.size != batch.size && attempt < maxAttempts)
+
+                    val unknowns = categories.count { it.substringAfterLast(",") == "-" }
+                    tooManyUnknowns = (unknowns / (batch.size / 100.0) > 30)
+                    if (tooManyUnknowns) {
+                        logger.debug("too many unknown categories: $unknowns")
+                    }
+                } while ((categories.size != batch.size || tooManyUnknowns) && attempt < maxAttempts)
 
                 categories
             }

@@ -42,10 +42,11 @@
             articleName;
             dateTime;
             seller;
+            total;
             category;
 
-            constructor(properties) {
-                Object.assign(this, properties);
+            constructor(props) {
+                Object.assign(this, props);
             }
         }
 
@@ -60,7 +61,7 @@
                         this.headers = csv[0]
                         this.items = csv.slice(1).map(csvLine => {
                                 const [articleName, quantity, price, total, dateTime, seller, category] = csvLine
-                                return new LineItem({articleName, dateTime, seller, category});
+                            return new LineItem({articleName, dateTime, total, seller, category});
                             }
                         )
                     })
@@ -117,6 +118,7 @@
                             <td x-text="`${item.dateTime}`" class="px-3 py-3 truncate" style="width: 1%"></td>
                             <td x-text="`${item.seller}`" class="px-3 py-3 truncate" style="width: 1%"></td>
                             <td x-text="`${item.articleName}`" class="px-3 py-3 max-w-prose truncate"></td>
+                            <td x-text="`${item.total}`" class="px-3 py-3 max-w-prose truncate"></td>
                             <td x-text="`${item.category}`" class="px-3 py-3 max-w-prose truncate"></td>
                         </tr>
                     </tbody>

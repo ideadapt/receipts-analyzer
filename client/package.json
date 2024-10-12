@@ -1,5 +1,5 @@
 {
-  "name": "spelljack",
+  "name": "receipt-summary-client",
   "version": "1.0.0",
   "description": "Comfortably check multiple wordpress articles for spelling errors and manage those errors in one place",
   "scripts": {
