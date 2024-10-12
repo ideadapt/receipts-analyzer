@@ -68,6 +68,7 @@ private suspend fun tryInitialSyncTwice(logger: Logger, worker: Worker) {
 }
 
 private suspend fun trySync(logger: Logger, worker: Worker) {
+    // withContext allows try catch on call site
     withContext(Dispatchers.IO) {
         logger.info("starting initial sync")
         worker.sync()
@@ -168,7 +169,7 @@ class Worker(
                     categories = ai.categorize(batch.map { lineItem -> "${lineItem.id},${lineItem.articleName}" })
 
                     val unknowns = categories.count { it.substringAfterLast(",") == "-" }
-                    tooManyUnknowns = (unknowns / (batch.size / 100.0) > 30)
+                    tooManyUnknowns = (unknowns / (batch.size / 100.0)) > 30
                     if (tooManyUnknowns) {
                         logger.debug("too many unknown categories: $unknowns")
                     }
