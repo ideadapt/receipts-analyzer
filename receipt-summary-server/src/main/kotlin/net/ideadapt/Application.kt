@@ -129,6 +129,10 @@ class Worker(
 
         val existingAnalysis = nx.analyzed()
         val mergedAnalysis = existingAnalysis.merge(fileAnalysis)
+        logger.info(
+            "Merged ${existingAnalysis.lineItems.size} existing items with ${fileAnalysis.lineItems.size} new items." +
+                    " Size after merge: ${mergedAnalysis.lineItems.size}."
+        )
         // TODO how exactly are exception treated? do they stop the program or not?
         nx.storeAnalysisResult(mergedAnalysis)
     }
