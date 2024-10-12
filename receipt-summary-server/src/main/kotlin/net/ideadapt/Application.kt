@@ -237,7 +237,7 @@ data class AnalysisResult(
      * [csv] has to be a comma separated list of values, see [analysisResultHeader].
      */
     data class LineItem(val csv: String) {
-        private val parts: List<String> by lazy { csv.split(",").map { it.trim() } }
+        private val parts: List<String> by lazy { csv.replace("\"", "").split(",").map { it.trim() } }
         val articleName = parts[0]
         val quantity = parts[1]
         val itemPrice = parts[2]

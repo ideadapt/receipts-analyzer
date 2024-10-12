@@ -83,8 +83,10 @@ class AiClient(
             val retrievedRun = ai.getRun(threadId = aiThreadRun.threadId, runId = aiThreadRun.id)
         } while (retrievedRun.status != Status.Completed)
 
-        val categoriesLine = ai.messages(aiThreadRun.threadId).map {
-            it.content.first() as? MessageContent.Text ?: error("Expected MessageContent.Text")
+        val categoriesLine = ai.messages(aiThreadRun.threadId).mapNotNull {
+            val text = it.content.first() as? MessageContent.Text
+            if (text == null) logger.error("expected MessageContent.Text. Ignoring message ${it.id}.")
+            text
         }
             .map { it.text.value }
             .first() // 1: categories, 2: the prompt

@@ -45,7 +45,7 @@
                 async init() {
                     console.log('init')
                     await loadAnalyzed().then(analyzed => {
-                        const csv = parse(analyzed['csv'].content)
+                        const csv = parse(analyzed.csv)
                         this.headers = csv[0]
                         this.items = csv.slice(1)
                     })

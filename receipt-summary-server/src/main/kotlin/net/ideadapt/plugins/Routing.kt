@@ -97,8 +97,19 @@ fun Application.configureRouting() {
                 }
             }
         }
+
+        get("/analyzed") {
+            val nx = NxClient()
+            val analysisResult = nx.analyzed()
+            val csv = analysisResult.toString()
+
+            call.respond(AnalyzedResponse(csv = csv))
+        }
     }
 }
+
+@Serializable
+data class AnalyzedResponse(val csv: String)
 
 fun Long.unixTimestampToUtc(): ZonedDateTime = ZonedDateTime.ofInstant(Date(this * 1000L).toInstant(), ZoneId.of("UTC"))
 
