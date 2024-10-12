@@ -21,6 +21,85 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.*
 
+fun Application.configureRouting() {
+    val worker by inject<Worker>(Worker::class.java)
+    val json = Json {
+        ignoreUnknownKeys = true
+    }
+
+    routing {
+        post("/hooks") {
+            // TODO https://github.com/kffl/nextcloud-webhooks/blob/master/README.md#authenticating-requests
+            val body = call.receiveText()
+            call.application.environment.log.info("Received hook {}", body)
+            if (body.contains("\\\\OCP\\\\Files::postCreate")) {
+                val event = json.decodeFromString<FlowEventFileCreate>(body)
+
+                launch(Dispatchers.IO) { // run in dedicated thread pool, pool size = nr of CPUs
+                    val lastModified =
+                        ZonedDateTime.ofInstant(Date(event.node.modifiedTime * 1000L).toInstant(), ZoneId.of("UTC"))
+                    worker.sync(
+                        File(
+                            name = event.node.internalPath.substringAfterLast("/"),
+                            etag = event.node.etag,
+                            lastModified = lastModified,
+                            contentType = event.node.mimeType
+                        )
+                    )
+                }
+
+                call.respond(HttpStatusCode.Accepted)
+            } else {
+                call.respond(HttpStatusCode.NotImplemented)
+            }
+        }
+
+        post("/receipts") {
+            val multipartData = call.receiveMultipart()
+            val buffer: okio.Buffer = okio.Buffer()
+            val results = mutableListOf<Boolean>()
+
+            multipartData.forEachPart { part ->
+                try {
+                    when (part) {
+                        is PartData.FileItem -> {
+                            val fileName = part.originalFileName as String
+                            buffer.readFrom(part.streamProvider())
+
+                            val nx = NxClient()
+                            results.add(nx.storeFile(buffer, fileName))
+                        }
+
+                        else -> {
+                            call.respond(HttpStatusCode.UnprocessableEntity, "Only multipart file upload allowed")
+                        }
+                    }
+                } finally {
+                    part.dispose()
+                }
+            }
+
+            if (results.isEmpty()) {
+                call.respond(HttpStatusCode.BadRequest)
+            } else {
+                val hasFailures = results.any { !it }
+                if (hasFailures) {
+                    if (results.all { !it }) {
+                        call.respond(HttpStatusCode.InternalServerError, "Unable to store any file.")
+                    } else {
+                        call.respond(
+                            HttpStatusCode.Accepted,
+                            "Unable to store all files. ${results.count { !it }} failed."
+                        )
+                    }
+                } else {
+                    call.respond(HttpStatusCode.Accepted)
+                }
+            }
+        }
+    }
+}
+
 @Language("JSON")
 val x = """ 
 {
@@ -68,81 +147,3 @@ data class FileNode @OptIn(ExperimentalSerializationApi::class) constructor(
     @JsonNames("Etag")
     val etag: String,
 )
-
-private val json = Json {
-    ignoreUnknownKeys = true
-}
-
-fun Application.configureRouting() {
-    val worker by inject<Worker>(Worker::class.java)
-
-    routing {
-        post("/hooks") {
-            // TODO https://github.com/kffl/nextcloud-webhooks/blob/master/README.md#authenticating-requests
-            val body = call.receiveText()
-            call.application.environment.log.info("Received hook {}", body)
-            if (body.contains("\\\\OCP\\\\Files::postCreate")) {
-                val event = json.decodeFromString<FlowEventFileCreate>(body)
-
-                launch(Dispatchers.IO) { // run in dedicated thread pool, pool size = nr of CPUs
-                    val lastModified =
-                        ZonedDateTime.ofInstant(Date(event.node.modifiedTime * 1000L).toInstant(), ZoneId.of("UTC"))
-                    worker.sync(
-                        File(
-                            name = event.node.internalPath.substringAfterLast("/"),
-                            etag = event.node.etag,
-                            lastModified = lastModified,
-                            contentType = event.node.mimeType
-                        )
-                    )
-                }
-
-                call.respond(HttpStatusCode.Accepted)
-            } else {
-                call.respond(HttpStatusCode.NotImplemented)
-            }
-        }
-
-        post("/receipts") {
-            val multipartData = call.receiveMultipart()
-            val buffer: okio.Buffer = okio.Buffer()
-            val results = mutableListOf<Boolean>()
-
-            multipartData.forEachPart { part ->
-                try {
-                    when (part) {
-                        is PartData.FileItem -> {
-                            val fileName = part.originalFileName as String
-                            buffer.readFrom(part.streamProvider())
-
-                            val nx = NxClient()
-                            results.add(nx.storeFile(buffer, fileName))
-                        }
-
-                        else -> {}
-                    }
-                } finally {
-                    part.dispose()
-                }
-            }
-
-            if (results.isEmpty()) {
-                call.respond(HttpStatusCode.BadRequest)
-            } else {
-                val hasFailures = results.any { !it }
-                if (hasFailures) {
-                    if (results.all { !it }) {
-                        call.respond(HttpStatusCode.BadRequest)
-                    } else {
-                        call.respond(
-                            HttpStatusCode.Accepted,
-                            "Unable to store all files. ${results.count { !it }} failed."
-                        )
-                    }
-                } else {
-                    call.respond(HttpStatusCode.Accepted)
-                }
-            }
-        }
-    }
-}

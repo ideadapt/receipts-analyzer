@@ -3,10 +3,7 @@ package net.ideadapt
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.ideadapt.AnalysisResult.Companion.outputDateFormat
@@ -19,12 +16,15 @@ import okio.Buffer
 import org.koin.dsl.module
 import org.koin.java.KoinJavaComponent.inject
 import org.koin.ktor.plugin.Koin
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.*
 import kotlin.time.Duration.Companion.seconds
+
+val logger: Logger = LoggerFactory.getLogger("main")
 
 fun main() {
     embeddedServer(
@@ -43,12 +43,36 @@ fun main() {
 
     runBlocking {
         launch(Dispatchers.IO) {
-            worker.sync()
+            logger.info("ready to accept requests")
+
+            tryInitialSyncTwice(logger, worker)
 
             while (true) {
                 delay(5.seconds)
             }
         }
+    }
+}
+
+private suspend fun tryInitialSyncTwice(logger: Logger, worker: Worker) {
+    try {
+        trySync(logger, worker)
+    } catch (e: Exception) {
+        logger.error("error in initial sync. Trying 1 more time.", e)
+
+        try {
+            trySync(logger, worker)
+        } catch (ex: Exception) {
+            logger.error("error in initial sync.", e)
+        }
+    }
+}
+
+private suspend fun trySync(logger: Logger, worker: Worker) {
+    withContext(Dispatchers.IO) {
+        logger.info("starting initial sync")
+        worker.sync()
+        logger.info("done initial sync")
     }
 }
 
