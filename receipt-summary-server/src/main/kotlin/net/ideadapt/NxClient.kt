@@ -93,7 +93,7 @@ data class NxClient(
 
         if (!resp.status.isSuccess()) {
             logger.error(
-                "Error getting files of folder $shareId. status: {}, body: {}",
+                "Error getting file '$fileName' of folder $shareId. status: {}, body: {}",
                 resp.status,
                 resp.bodyAsText().take(200)
             )

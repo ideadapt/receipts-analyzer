@@ -35,14 +35,14 @@ fun Application.configureRouting() {
             if (body.contains("\\\\OCP\\\\Files::postCreate")) {
                 val event = json.decodeFromString<FlowEventFileCreate>(body)
 
-                launch(Dispatchers.IO) { // run in dedicated thread pool, pool size = nr of CPUs
-                    val lastModified =
-                        ZonedDateTime.ofInstant(Date(event.node.modifiedTime * 1000L).toInstant(), ZoneId.of("UTC"))
+                // run in dedicated thread pool, pool size = nr of CPUs
+                // exceptions logged by ktors CoroutineExceptionHandler, route continues to work
+                launch(Dispatchers.IO) {
                     worker.sync(
                         File(
                             name = event.node.internalPath.substringAfterLast("/"),
                             etag = event.node.etag,
-                            lastModified = lastModified,
+                            lastModified = event.node.modifiedTime.unixTimestampToUtc(),
                             contentType = event.node.mimeType
                         )
                     )
@@ -99,6 +99,8 @@ fun Application.configureRouting() {
         }
     }
 }
+
+fun Long.unixTimestampToUtc(): ZonedDateTime = ZonedDateTime.ofInstant(Date(this * 1000L).toInstant(), ZoneId.of("UTC"))
 
 @Language("JSON")
 val x = """ 

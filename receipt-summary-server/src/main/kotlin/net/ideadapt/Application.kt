@@ -9,13 +9,12 @@ import kotlinx.coroutines.sync.withLock
 import net.ideadapt.AnalysisResult.Companion.outputDateFormat
 import net.ideadapt.AnalysisResult.LineItem
 import net.ideadapt.NxClient.File
+import net.ideadapt.plugins.configureDependencyInjection
 import net.ideadapt.plugins.configureHTTP
 import net.ideadapt.plugins.configureRouting
 import net.ideadapt.plugins.configureSerialization
 import okio.Buffer
-import org.koin.dsl.module
 import org.koin.java.KoinJavaComponent.inject
-import org.koin.ktor.plugin.Koin
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
@@ -24,7 +23,7 @@ import java.time.format.DateTimeParseException
 import java.util.*
 import kotlin.time.Duration.Companion.seconds
 
-val logger: Logger = LoggerFactory.getLogger("main")
+val logger: Logger = LoggerFactory.getLogger("net.ideadapt.receiptsSummary.main")
 
 fun main() {
     embeddedServer(
@@ -80,13 +79,7 @@ fun Application.receiptsModule() {
     configureHTTP()
     configureSerialization()
     configureRouting()
-    install(Koin) {
-        modules(listOf(
-            module {
-                single { Worker() }
-            }
-        ))
-    }
+    configureDependencyInjection()
 }
 
 object Config {
@@ -96,9 +89,7 @@ object Config {
         props.load(javaClass.classLoader.getResourceAsStream(".env"))
     }
 
-    fun get(key: String): String? {
-        return props[key]?.toString()
-    }
+    fun get(key: String): String? = props[key]?.toString()
 }
 
 class Worker(
@@ -154,10 +145,9 @@ class Worker(
         val existingAnalysis = nx.analyzed()
         val mergedAnalysis = existingAnalysis.merge(fileAnalysis)
         logger.info(
-            "Merged ${existingAnalysis.lineItems.size} existing items with ${fileAnalysis.lineItems.size} new items." +
+            "merged ${existingAnalysis.lineItems.size} existing items with ${fileAnalysis.lineItems.size} new items." +
                     " Size after merge: ${mergedAnalysis.lineItems.size}."
         )
-        // TODO how exactly are exception treated? do they stop the program or not?
         nx.storeAnalysisResult(mergedAnalysis)
     }
 
