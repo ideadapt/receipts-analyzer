@@ -20,7 +20,5 @@ TODO
 
 - redo analysis for a receipt (sometimes a lot of categories are set to '-' by the AI)
 - connect migros via API wrapper
-- connect client to kotlin server
-- deploy docker to fly.io.
 - serve client assets within server (also in dev env?)
 - deal with OpenAI quota errors (back off / retry)
