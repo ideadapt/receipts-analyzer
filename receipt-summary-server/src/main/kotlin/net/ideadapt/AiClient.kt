@@ -1,30 +1,22 @@
 package net.ideadapt
 
-import com.aallam.openai.api.BetaOpenAI
-import com.aallam.openai.api.assistant.AssistantRequest
-import com.aallam.openai.api.assistant.AssistantTool
-import com.aallam.openai.api.assistant.FileSearchResources
-import com.aallam.openai.api.assistant.ToolResources
-import com.aallam.openai.api.core.Role
-import com.aallam.openai.api.core.Status
-import com.aallam.openai.api.file.FileSource
-import com.aallam.openai.api.file.FileUpload
-import com.aallam.openai.api.file.Purpose
-import com.aallam.openai.api.logging.LogLevel
-import com.aallam.openai.api.logging.Logger
-import com.aallam.openai.api.message.MessageContent
-import com.aallam.openai.api.model.ModelId
-import com.aallam.openai.api.run.ThreadRunRequest
-import com.aallam.openai.api.thread.ThreadMessage
-import com.aallam.openai.api.thread.threadRequest
-import com.aallam.openai.api.vectorstore.ExpirationPolicy
-import com.aallam.openai.api.vectorstore.VectorStoreRequest
-import com.aallam.openai.client.LoggingConfig
-import com.aallam.openai.client.OpenAI
-import com.aallam.openai.client.OpenAIConfig
+import com.openai.client.OpenAIClient
+import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.core.LogLevel
+import com.openai.models.responses.ResponseCreateParams
+import com.openai.models.responses.ResponseInputFile
+import com.openai.models.responses.ResponseInputItem
+import com.openai.models.responses.Tool
+import com.openai.models.uploads.UploadCreateParams
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import okio.Buffer
 import org.slf4j.LoggerFactory
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.Base64
+import java.util.stream.Collectors
 
 /**
  * OpenAI client featuring methods to analyze file contents with following specializations:
@@ -33,24 +25,15 @@ import org.slf4j.LoggerFactory
  */
 class AiClient(
     private val token: String = requireNotNull(Config.get("OPEN_AI_TOKEN")) { "OPEN_AI_TOKEN missing" },
-    private val ai: OpenAI = OpenAI(
-        config = OpenAIConfig(
-            token = token,
-            logging = LoggingConfig(LogLevel.Info, Logger.Default),
-        )
-    )
+    private val ai: OpenAIClient = OpenAIOkHttpClient.builder().apiKey(token).logLevel(LogLevel.INFO).build()
 ) {
     private val logger = LoggerFactory.getLogger(this.javaClass)
 
-    @OptIn(BetaOpenAI::class)
-    suspend fun categorize(itemNames: List<String>): List<String> {
+    fun categorize(itemNames: List<String>): List<String> {
         logger.info("categorizing ${itemNames.size} item names")
-        val assistantName = "asst_shopping_item_categorizer_v16"
-        val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
-            AssistantRequest(
-                name = assistantName,
-                model = ModelId("gpt-4o-mini"),
-                instructions = """
+
+        val params: ResponseCreateParams = ResponseCreateParams.builder().instructions(
+            """
         |You can categorize shopping items based on their german article name into one of the following categories:
         |Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck.
         |You may use other suitable category names if none of the suggested categories match.
@@ -62,36 +45,19 @@ class AiClient(
         |Make sure, that you do not skip any line!
         |Omit introduction sentences or the like.
         |""".trimMargin()
-            )
         )
+            .input(itemNames.joinToString("\n"))
+            .model("gpt-4o-mini")
+            .build()
 
-        val aiThreadRun = ai.createThreadRun(
-            request = ThreadRunRequest(
-                assistantId = assistant.id,
-                thread = threadRequest {
-                    messages = listOf(
-                        ThreadMessage(
-                            content = itemNames.joinToString("\n"),
-                            role = Role.User
-                        )
-                    )
-                }
-            ))
+        val categoriesLines = ai.responses().create(params).output().stream()
+            .flatMap { item -> item.message().stream() }
+            .flatMap { message -> message.content().stream() }
+            .flatMap { content -> content.outputText().stream() }
+            .map { text -> text.text() }
+            .collect(Collectors.toList()).first().lines()
 
-        do {
-            delay(1500)
-            val retrievedRun = ai.getRun(threadId = aiThreadRun.threadId, runId = aiThreadRun.id)
-        } while (retrievedRun.status != Status.Completed)
-
-        val categoriesLine = ai.messages(aiThreadRun.threadId).mapNotNull {
-            val text = it.content.first() as? MessageContent.Text
-            if (text == null) logger.error("expected MessageContent.Text. Ignoring message ${it.id}.")
-            text
-        }
-            .map { it.text.value }
-            .first() // 1: categories, 2: the prompt
-
-        val articleCategories = categoriesLine.lines().map {
+        val articleCategories = categoriesLines.map {
             // in some rare cases there is no category column, so we just fake one to not fail
             if (it.count { c -> c == ',' } == 1) {
                 "$it,-"
@@ -100,36 +66,22 @@ class AiClient(
             }.trim()
         }
 
-        ai.delete(aiThreadRun.threadId)
-
         logger.info("categorized ${itemNames.size} item names into ${articleCategories.size} categories")
         return articleCategories
     }
 
-    @OptIn(BetaOpenAI::class)
-    suspend fun extractLineItems(content: Buffer, fileName: String): AnalysisResult {
+    fun extractLineItems(content: Buffer, fileName: String): AnalysisResult {
         logger.info("extracting line items from $fileName")
-        val aiFile = ai.file(
-            FileUpload(
-                purpose = Purpose("assistants"),
-                file = FileSource(name = fileName, source = content)
-            )
-        )
-        val vectorStore = ai.createVectorStore(
-            VectorStoreRequest(
-                name = "receipt",
-                fileIds = listOf(aiFile.id),
-                expiresAfter = ExpirationPolicy(days = 1, anchor = "last_active_at")
-            )
-        )
-
-        val assistantName = "asst_pdf_receipts_reader_v14"
-        val assistant = ai.assistants().find { it.name == assistantName } ?: ai.assistant(
-            AssistantRequest(
-                name = assistantName,
-                model = ModelId("gpt-4o-mini"),
-                tools = listOf(AssistantTool.FileSearch),
-                instructions = """
+        val pdfData = Base64.getEncoder().encodeToString(content.readByteArray())
+        val params = ResponseCreateParams.builder()
+            .model("gpt-4o-mini")
+            .inputOfResponse(
+                listOf(
+                    ResponseInputItem.ofMessage(
+                        ResponseInputItem.Message.builder()
+                            .role(ResponseInputItem.Message.Role.USER)
+                            .addInputTextContent(
+                                """
         |You can read tabular data from a german shopping receipt and output this data in proper CSV format.
         |You never include anything but the raw CSV rows. You omit the surrounding markdown code blocks.
         |Make sure you never remove the header row containing the column titles.
@@ -137,47 +89,33 @@ class AiClient(
         |Add another extra column at the end called 'Seller' that contains the name of the receipt issuer (e.g. store name). The seller value is the same for every shopping item.
         |If the seller name contains one of: 'Migros', 'Coop', 'Aldi', 'Lidl', use that short form.
         |""".trimMargin()
-            )
-        )
-
-        val aiThreadRun = ai.createThreadRun(
-            request = ThreadRunRequest(
-                assistantId = assistant.id,
-                thread = threadRequest {
-                    toolResources =
-                        ToolResources(fileSearch = FileSearchResources(vectorStoreIds = listOf(vectorStore.id)))
-                    messages = listOf(
-                        ThreadMessage(
-                            content = "Extract tabular data from attached receipt. The columns in the receipt are Artikelbezeichnung, Menge, Preis, Total.",
-                            role = Role.User
-                        )
+                            )
+                            .addContent(
+                                ResponseInputFile.builder()
+                                    .filename(fileName)
+                                    .fileData("data:application/pdf;base64,$pdfData")
+                                    .build()
+                            )
+                            .build()
                     )
-                }
-            ))
+                )
+            )
+            .addCodeInterpreterTool(Tool.CodeInterpreter.Container.CodeInterpreterToolAuto.builder().build())
+            .build()
 
-        do {
-            delay(1500)
-            val retrievedRun = ai.getRun(threadId = aiThreadRun.threadId, runId = aiThreadRun.id)
-        } while (retrievedRun.status != Status.Completed)
+        val lineItemsCsv = ai.responses().create(params).output().stream()
+            .flatMap { item -> item.message().stream() }
+            .flatMap { message -> message.content().stream() }
+            .flatMap { content -> content.outputText().stream() }
+            .map { text -> text.text() }
+            .collect(Collectors.toList()).first().lines()
 
-        val lineItems = ai.messages(aiThreadRun.threadId).map {
-            it.content.first() as? MessageContent.Text ?: error("Expected MessageContent.Text")
-        }
-            .map { it.text.value }
-            .dropLast(1) // the prompt
-            .flatMap { lineItemsCsv ->
-                lineItemsCsv
-                    .lines()
-                    .drop(1) // header
-                    .map { lineItemCsv ->
-                        AnalysisResult.LineItem("$lineItemCsv,") // the last column (category) is empty
-                    }
+        val lineItems = lineItemsCsv
+            .drop(1) // header
+            .map { lineItemCsv ->
+                AnalysisResult.LineItem("$lineItemCsv,") // the last column (category) is empty
             }
             .toSet()
-
-        ai.delete(aiFile.id)
-        ai.delete(vectorStore.id)
-        ai.delete(aiThreadRun.threadId)
 
         logger.info("extracted ${lineItems.size} line items from $fileName")
 

@@ -28,15 +28,10 @@ val logger: Logger = LoggerFactory.getLogger("net.ideadapt.receiptsSummary.main"
 fun main() {
     embeddedServer(
         factory = Netty,
-        environment = applicationEngineEnvironment {
-            module {
-                receiptsModule()
-                connector {
-                    port = Config.get("SERVER_PORT")?.toInt() ?: 3000
-                }
-            }
-        })
-        .start(false)
+        port = Config.get("SERVER_PORT")?.toInt() ?: 3000,
+        module = Application::receiptsModule
+    )
+        .start(wait = false)
 
     val worker by inject<Worker>(Worker::class.java)
 
@@ -62,7 +57,7 @@ private suspend fun tryInitialSyncTwice(logger: Logger, worker: Worker) {
         try {
             trySync(logger, worker)
         } catch (ex: Exception) {
-            logger.error("error in initial sync.", e)
+            logger.error("error in initial sync.", ex)
         }
     }
 }
@@ -152,7 +147,7 @@ class Worker(
         nx.storeAnalysisResult(mergedAnalysis)
     }
 
-    private suspend fun categorize(result: AnalysisResult) {
+    private fun categorize(result: AnalysisResult) {
         val maxAttempts = 4
         val articleCategories = result.lineItems
             .windowed(50, 50, true)

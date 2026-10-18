@@ -40,8 +40,8 @@ data class NxClient(
     private val client: HttpClient = HttpClient(CIO) {
         install(HttpTimeout)
     },
-    private val nxFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss z"),
-    private val nxRoot: String = "https://ideadapt.net/nextcloud"
+    private val nxFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH),
+    private val nxRoot: String = requireNotNull(Config.get("NX_ROOT")) { "NX_ROOT missing" },
 ) {
     private val logger = LoggerFactory.getLogger(this.javaClass)
 
@@ -55,7 +55,7 @@ data class NxClient(
             logger.error(
                 "error getting files of folder $shareId. status: {}, body: {}",
                 resp.status,
-                resp.bodyAsText().take(1000)
+                resp.bodyAsText().take(5000)
             )
             return sortedSetOf<File>()
         }
@@ -101,7 +101,7 @@ data class NxClient(
                 String.format(
                     "error getting file $$shareId/$fileName. status: %s, body: %s",
                     resp.status,
-                    resp.bodyAsText().take(1000)
+                    resp.bodyAsText().take(5000)
                 )
             )
         }
@@ -137,7 +137,7 @@ data class NxClient(
                 String.format(
                     "error getting state $stateId. status: %s, body: %s",
                     resp.status,
-                    resp.bodyAsText().take(1000)
+                    resp.bodyAsText().take(5000)
                 )
             )
         }
@@ -158,7 +158,7 @@ data class NxClient(
                 String.format(
                     "Error storing state $stateId. status: %s, body: %s...",
                     resp.status,
-                    resp.bodyAsText().take(1000)
+                    resp.bodyAsText().take(5000)
                 )
             )
         }
@@ -175,7 +175,7 @@ data class NxClient(
                 String.format(
                     "error getting analyzed $analyzedId. status: %s, body: %s",
                     resp.status,
-                    resp.bodyAsText().take(1000)
+                    resp.bodyAsText().take(5000)
                 )
             )
         }
@@ -195,7 +195,7 @@ data class NxClient(
                 String.format(
                     "error storing analysis result ${analysis.lineItems.take(50)}. status: %s, body: %s...",
                     resp.status,
-                    resp.bodyAsText().take(1000)
+                    resp.bodyAsText().take(5000)
                 )
             )
         }

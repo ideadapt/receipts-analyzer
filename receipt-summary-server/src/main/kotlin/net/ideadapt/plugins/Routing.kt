@@ -6,6 +6,7 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -21,6 +22,7 @@ import org.koin.java.KoinJavaComponent.inject
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.*
+import kotlin.coroutines.CoroutineContext
 
 fun Application.configureRouting() {
     val worker by inject<Worker>(Worker::class.java)
@@ -65,7 +67,7 @@ fun Application.configureRouting() {
                     when (part) {
                         is PartData.FileItem -> {
                             val fileName = part.originalFileName as String
-                            buffer.readFrom(part.streamProvider())
+                            buffer.readFrom(part.provider().toInputStream())
 
                             val nx = NxClient()
                             results.add(nx.storeFile(buffer, fileName))
