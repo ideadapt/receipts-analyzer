@@ -7,14 +7,8 @@ import com.openai.models.responses.ResponseCreateParams
 import com.openai.models.responses.ResponseInputFile
 import com.openai.models.responses.ResponseInputItem
 import com.openai.models.responses.Tool
-import com.openai.models.uploads.UploadCreateParams
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import okio.Buffer
 import org.slf4j.LoggerFactory
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.Base64
 import java.util.stream.Collectors
 
@@ -30,22 +24,22 @@ class AiClient(
     private val logger = LoggerFactory.getLogger(this.javaClass)
 
     fun categorize(itemNames: List<String>): List<String> {
-        logger.info("categorizing ${itemNames.size} item names")
-
         val params: ResponseCreateParams = ResponseCreateParams.builder().instructions(
             """
-        |You can categorize shopping items based on their german article name into one of the following categories:
-        |Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck.
-        |You may use other suitable category names if none of the suggested categories match.
-        |If you can not figure out a good category, think about a suitable category name again. 
-        |If you still can't figure it out your last resort is to use a hyphen "-" symbol.
-        |Each line in the input has the following format (using placeholder names in < and >): <technical-prefix>,<article-name>
-        |Where neither <technical-prefix> nor <article-name> can contain a coma. So the coma is the column delimiter.
-        |To process the user input, do the following for each and every line: Output the exact input line again and just append the category name after a comma.
-        |Make sure, that you do not skip any line!
-        |Omit introduction sentences or the like.
+        |# Goal: Categorization of shopping line items.
+        |# Input format:
+        |Each input line has the format (placeholder names in < and >): <line-item-id>,<article-name>
+        |Neither <line-item-id> nor <article-name> ever contains a coma. Coma is the delimiter.
+        |# Categorization:
+        |Categorize line items based on the article-name (german). Choose the best matching, german category:
+        |Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck, Getreide, Kohlenhydrate, Gewürz, Kleidung, Haushalt, Elektronik.
+        |Your last resort is a hyphen "-" symbol as category.
+        |# Processing:
+        |FOR EACH AND EVERY LINE: Output the EXACT input line and just append the category name after a comma (no whitespaces).
+        |Make sure, that you DO NOT SKIP ANY LINE and do not modify the input!
         |""".trimMargin()
         )
+            .addCodeInterpreterTool(Tool.CodeInterpreter.Container.CodeInterpreterToolAuto.builder().build())
             .input(itemNames.joinToString("\n"))
             .model("gpt-4o-mini")
             .build()
@@ -57,7 +51,7 @@ class AiClient(
             .map { text -> text.text() }
             .collect(Collectors.toList()).first().lines()
 
-        val articleCategories = categoriesLines.map {
+        val articleCategories = categoriesLines.filter { !it.startsWith("```") }.map {
             // in some rare cases there is no category column, so we just fake one to not fail
             if (it.count { c -> c == ',' } == 1) {
                 "$it,-"
@@ -66,15 +60,14 @@ class AiClient(
             }.trim()
         }
 
-        logger.info("categorized ${itemNames.size} item names into ${articleCategories.size} categories")
         return articleCategories
     }
 
-    fun extractLineItems(content: Buffer, fileName: String): AnalysisResult {
+    fun extractLineItemsFromPDF(content: Buffer, fileName: String): AnalysisResult {
         logger.info("extracting line items from $fileName")
         val pdfData = Base64.getEncoder().encodeToString(content.readByteArray())
         val params = ResponseCreateParams.builder()
-            .model("gpt-4o-mini")
+            .model("gpt-6-luna")
             .inputOfResponse(
                 listOf(
                     ResponseInputItem.ofMessage(

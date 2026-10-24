@@ -133,7 +133,7 @@ class Worker(
             categorize(result)
             result
         } else {
-            val result = ai.extractLineItems(buffer, file.name)
+            val result = ai.extractLineItemsFromPDF(buffer, file.name)
             categorize(result)
             result
         }
@@ -150,23 +150,26 @@ class Worker(
     private fun categorize(result: AnalysisResult) {
         val maxAttempts = 4
         val articleCategories = result.lineItems
-            .windowed(50, 50, true)
-            .flatMap { batch ->
+            .windowed(100, 100, true)
+            .flatMapIndexed { index, batch ->
                 var attempt = 0
                 var categories: List<String>
                 var tooManyUnknowns: Boolean
                 do {
                     attempt++
                     if (attempt > 1) {
-                        logger.debug("trying to categorize again, attempt: $attempt of $maxAttempts")
+                        logger.debug("trying to categorize again, attempt: $attempt of $maxAttempts, batch: $index")
                     }
 
-                    categories = ai.categorize(batch.map { lineItem -> "${lineItem.id},${lineItem.articleName}" })
+                    val itemNames = batch.map { lineItem -> "${lineItem.id},${lineItem.articleName}" }
+                    logger.info("categorizing ${itemNames.size} item names, batch: $index")
+                    categories = ai.categorize(itemNames)
+                    val unknowns = categories.filter { it.substringAfterLast(",").trim() == "-" }
+                    logger.debug("categorized ${itemNames.size} item names into ${categories.size} categories, unknowns: ${unknowns.size}, batch: $index")
 
-                    val unknowns = categories.count { it.substringAfterLast(",") == "-" }
-                    tooManyUnknowns = (unknowns / (batch.size / 100.0)) > 30
+                    tooManyUnknowns = (unknowns.size / (batch.size / 100.0)) > 50
                     if (tooManyUnknowns) {
-                        logger.debug("too many unknown categories: $unknowns")
+                        logger.info("too many unknown categories: ${unknowns.size}, batch: $index. categories: $unknowns")
                     }
                 } while ((categories.size != batch.size || tooManyUnknowns) && attempt < maxAttempts)
 
@@ -175,9 +178,9 @@ class Worker(
 
         val idToLineItem = result.lineItems.associateBy { it.id }
         val updatedIds = articleCategories.mapNotNull { articleCategory ->
-            val (id, _, category) = articleCategory.split(",")
+            val (id, _, category) = articleCategory.split(",").map { it.trim() }
             if (!idToLineItem.containsKey(id)) {
-                logger.info("unable to apply category '$category' to line item with id '$id': id does not exist. raw article categorization result: '$articleCategory'")
+                logger.error("unable to apply category '$category' to line item with id '$id': id does not exist. raw categorization result: '$articleCategory'")
                 null
             } else {
                 idToLineItem[id]!!.category = category

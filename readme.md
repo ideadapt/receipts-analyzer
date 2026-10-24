@@ -22,3 +22,8 @@ TODO
 - connect migros via API wrapper
 - serve client assets within server (also in dev env?)
 - deal with OpenAI quota errors (back off / retry)
+
+## Receipt Source
+
+- Migros: account.migros.ch => download yearly CSV
+- Coop: `document.querySelectorAll("[data-href*='/receipt']").forEach(el => download(window.location.origin + el.dataset.href))`
