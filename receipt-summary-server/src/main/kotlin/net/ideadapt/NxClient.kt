@@ -7,7 +7,6 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.http.content.*
-import io.ktor.util.*
 import io.ktor.utils.io.jvm.javaio.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -45,8 +44,8 @@ data class NxClient(
 ) {
     private val logger = LoggerFactory.getLogger(this.javaClass)
 
-    suspend fun files(): SortedSet<File> {
-        logger.info("getting files")
+    suspend fun files(): List<File> {
+        logger.debug("getting files")
         val resp = client.request("$nxRoot/public.php/dav/files/$shareId") {
             applyRequestParams("PROPFIND", password = sharePassword)
         }
@@ -57,7 +56,7 @@ data class NxClient(
                 resp.status,
                 resp.bodyAsText().take(5000)
             )
-            return sortedSetOf<File>()
+            return listOf()
         }
 
         val xml = resp.bodyAsText()
@@ -80,13 +79,13 @@ data class NxClient(
                 }
             }
 
-        logger.info("getting files: found ${files.size} files")
+        logger.info("found ${files.size} files")
 
-        return files.toSortedSet(compareBy { it.lastModified })
+        return files.sortedBy { it.lastModified }
     }
 
-    suspend fun file(fileName: String): Buffer {
-        logger.info("getting file $fileName")
+    suspend fun readFile(fileName: String): Buffer {
+        logger.debug("getting file $fileName")
         val resp = client.request("$nxRoot/public.php/dav/files/$shareId/${fileName}") {
             applyRequestParams("GET", password = sharePassword)
         }
@@ -110,7 +109,7 @@ data class NxClient(
         return Buffer().readFrom(resp.bodyAsChannel().toInputStream())
     }
 
-    suspend fun storeFile(buffer: Buffer, fileName: String): Boolean {
+    suspend fun saveFile(buffer: Buffer, fileName: String): Boolean {
         val size = buffer.size
         val resp = client.request("$nxRoot/public.php/dav/files/$shareId/$fileName") {
             applyRequestParams("PUT", password = sharePassword)
@@ -127,46 +126,23 @@ data class NxClient(
         return true
     }
 
-    suspend fun state(): State {
-        logger.info("getting state")
-        val resp = client.request("$nxRoot/public.php/dav/files/$stateId") {
-            applyRequestParams("GET", password = statePassword)
+    suspend fun rename(file: File, to: String): Boolean {
+        val resp = client.request("$nxRoot/public.php/dav/files/$shareId/${file.name}") {
+            applyRequestParams("MOVE", password = sharePassword)
+            header("Destination", "$nxRoot/public.php/dav/files/$shareId/$to")
         }
-        if (!resp.status.isSuccess()) {
-            throw IllegalStateException(
-                String.format(
-                    "error getting state $stateId. status: %s, body: %s",
-                    resp.status,
-                    resp.bodyAsText().take(5000)
-                )
-            )
-        }
-        logger.info("found state, size: ${resp.headers["Content-Length"]} bytes")
 
-        val csv = resp.bodyAsText()
-        return State(csv)
-    }
-
-    suspend fun storeState(state: State) {
-        logger.info("storing state ${state.csv.take(50)}...")
-        val resp = client.request("$nxRoot/public.php/dav/files/$stateId") {
-            applyRequestParams("PUT", password = statePassword)
-            setBody(state.csv)
-        }
         if (!resp.status.isSuccess()) {
-            throw IllegalStateException(
-                String.format(
-                    "Error storing state $stateId. status: %s, body: %s...",
-                    resp.status,
-                    resp.bodyAsText().take(5000)
-                )
-            )
+            logger.error("error renaming file ${file.name} to $to, response: {}", resp.bodyAsText())
+            return false
+        } else {
+            logger.info("renamed file ${file.name} to $to")
         }
-        logger.info("stored state")
+        return true
     }
 
     suspend fun analyzed(): AnalysisResult {
-        logger.info("getting analyzed")
+        logger.debug("getting analyzed")
         val resp = client.request("$nxRoot/public.php/dav/files/$analyzedId") {
             applyRequestParams("GET", password = analyzedPassword)
         }
@@ -184,8 +160,8 @@ data class NxClient(
         return AnalysisResult.fromCsvWithHeader(resp.bodyAsText())
     }
 
-    suspend fun storeAnalysisResult(analysis: AnalysisResult) {
-        logger.info("storing analysis result ${analysis.lineItems.take(50)}...")
+    suspend fun saveAnalysisResult(analysis: AnalysisResult) {
+        logger.debug("storing analysis result with ${analysis.lineItems.size} items")
         val resp = client.request("$nxRoot/public.php/dav/files/$analyzedId") {
             applyRequestParams("PUT", password = analyzedPassword)
             setBody(analysis.toString())
@@ -193,7 +169,7 @@ data class NxClient(
         if (!resp.status.isSuccess()) {
             throw IllegalStateException(
                 String.format(
-                    "error storing analysis result ${analysis.lineItems.take(50)}. status: %s, body: %s...",
+                    "error storing analysis result. status: %s, body: %s...",
                     resp.status,
                     resp.bodyAsText().take(5000)
                 )
@@ -215,20 +191,6 @@ data class NxClient(
         retry {
             maxRetries = 1
             constantDelay(1000)
-        }
-    }
-
-    data class State(val csv: String) {
-        private val etags: Set<String> = csv.split(",").toSet()
-
-        fun unprocessed(candidates: Set<File>): SortedSet<File> {
-            return candidates
-                .filter { c -> etags.none { etag -> etag == c.etag } }
-                .toSortedSet(compareBy { it.lastModified })
-        }
-
-        fun done(file: File): State {
-            return State(etags.plus(file.etag).joinToString(","))
         }
     }
 

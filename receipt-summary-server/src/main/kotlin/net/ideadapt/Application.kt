@@ -3,9 +3,11 @@ package net.ideadapt
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
+import io.ktor.util.sha1
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.io.bytestring.encodeToByteString
 import net.ideadapt.AnalysisResult.Companion.outputDateFormat
 import net.ideadapt.AnalysisResult.LineItem
 import net.ideadapt.NxClient.File
@@ -95,63 +97,41 @@ class Worker(
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    // TODO nextcloud creates a new etag if the same file is deleted and uploaded again
-    //  this results in another analysis for a (potentially) already analyzed file
-    //  (no duplicates in analyzed.csv since items are merged),
-    //  we could use the filename instead of etag, but then renamed files cause the same problem.
-    //  in the final app vision, neither renames nor re-uploads can happen (at least not via app APIs).
     suspend fun sync() {
+        val doneFileNameId = "_done."
         syncWorkerMutex.withLock {
-            var state = nx.state()
-
-            val candidateFiles = nx.files()
-            state.unprocessed(candidateFiles).forEach { nextFile ->
+            val candidateFiles = nx.files().filter { !it.name.contains(doneFileNameId) }
+            candidateFiles.forEach { nextFile ->
                 analyse(nextFile)
-
-                state = state.done(nextFile)
-                nx.storeState(state)
+                nx.rename(nextFile,   "done/" + nextFile.name)
             }
         }
     }
 
     suspend fun sync(file: File) {
         syncWorkerMutex.withLock {
-            var state = nx.state()
-
             analyse(file)
-
-            state = state.done(file)
-            nx.storeState(state)
         }
     }
 
     private suspend fun analyse(file: File) {
-        val buffer = nx.file(file.name)
+        val buffer = nx.readFile(file.name)
 
-        val fileAnalysis = if (file.contentType == "text/csv") {
+        if (file.contentType == "text/csv") {
             val result = MigrosCsv(buffer).toAnalysisResult()
             categorize(result)
-            result
         } else {
             val result = ai.extractLineItemsFromPDF(buffer, file.name)
             categorize(result)
-            result
         }
-
-        val existingAnalysis = nx.analyzed()
-        val mergedAnalysis = existingAnalysis.merge(fileAnalysis)
-        logger.info(
-            "merged ${existingAnalysis.lineItems.size} existing items with ${fileAnalysis.lineItems.size} new items." +
-                    " Size after merge: ${mergedAnalysis.lineItems.size}."
-        )
-        nx.storeAnalysisResult(mergedAnalysis)
     }
 
-    private fun categorize(result: AnalysisResult) {
+    private suspend fun categorize(result: AnalysisResult) {
+        val existingAnalysis = nx.analyzed()
         val maxAttempts = 4
-        val articleCategories = result.lineItems
+        result.lineItems.minus(existingAnalysis.lineItems)
             .windowed(100, 100, true)
-            .flatMapIndexed { index, batch ->
+            .mapIndexed { index, batch ->
                 var attempt = 0
                 var categories: List<String>
                 var tooManyUnknowns: Boolean
@@ -162,10 +142,10 @@ class Worker(
                     }
 
                     val itemNames = batch.map { lineItem -> "${lineItem.id},${lineItem.articleName}" }
-                    logger.info("categorizing ${itemNames.size} item names, batch: $index")
+                    logger.info("categorizing ${itemNames.size} items, batch: $index")
                     categories = ai.categorize(itemNames)
                     val unknowns = categories.filter { it.substringAfterLast(",").trim() == "-" }
-                    logger.debug("categorized ${itemNames.size} item names into ${categories.size} categories, unknowns: ${unknowns.size}, batch: $index")
+                    logger.debug("categorized ${itemNames.size} items into ${categories.size} categorized items, unknowns: ${unknowns.size}, batch: $index")
 
                     tooManyUnknowns = (unknowns.size / (batch.size / 100.0)) > 50
                     if (tooManyUnknowns) {
@@ -173,24 +153,31 @@ class Worker(
                     }
                 } while ((categories.size != batch.size || tooManyUnknowns) && attempt < maxAttempts)
 
-                categories
-            }
+                val idToLineItem = batch.associateBy { it.id }
+                val updatedIds = categories.mapNotNull { articleCategory ->
+                    val (id, _, category) = articleCategory.split(",").map { it.trim() }
+                    if (!idToLineItem.containsKey(id)) {
+                        logger.error("unable to apply category '$category' to line item with id '$id': id does not exist. raw categorization result: '$articleCategory'")
+                        null
+                    } else {
+                        idToLineItem[id]!!.category = category
+                        id
+                    }
+                }.toSet()
 
-        val idToLineItem = result.lineItems.associateBy { it.id }
-        val updatedIds = articleCategories.mapNotNull { articleCategory ->
-            val (id, _, category) = articleCategory.split(",").map { it.trim() }
-            if (!idToLineItem.containsKey(id)) {
-                logger.error("unable to apply category '$category' to line item with id '$id': id does not exist. raw categorization result: '$articleCategory'")
-                null
-            } else {
-                idToLineItem[id]!!.category = category
-                id
-            }
-        }.toSet()
+                idToLineItem.keys.minus(updatedIds).forEach { notUpdatedId ->
+                    idToLineItem[notUpdatedId]!!.category = "-"
+                }
 
-        idToLineItem.keys.minus(updatedIds).forEach { notUpdatedId ->
-            idToLineItem[notUpdatedId]!!.category = "-"
-        }
+                val existingAnalysis = nx.analyzed()
+                val batchResult = AnalysisResult(batch.toSet())
+                val mergedAnalysis = existingAnalysis.merge(batchResult)
+                logger.info(
+                    "merged ${existingAnalysis.lineItems.size} existing items with ${batchResult.lineItems.size} new items." +
+                            " Size after merge: ${mergedAnalysis.lineItems.size}."
+                )
+                nx.saveAnalysisResult(mergedAnalysis)
+            }
     }
 }
 
@@ -211,17 +198,22 @@ data class MigrosCsv(private val buffer: Buffer) {
                 !it.contains("CUMULUS BON") && !it.contains("CUM ")
                         && !it.contains("Bonus-Coupon") && !it.contains(";MR ")
             }
-            .map { line ->
-                val parts = line.split(";")
-                val articleName = parts[5]
-                val quantity = parts[6].toDouble()
-                val total = parts[8].toDouble()
-                val itemPrice = String.format("%.2f", (total / (1 / quantity)))
-                val dateTime = outputDateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
-                val seller = "Migros"
-                val category = ""
-                val values = listOf(articleName, quantity, itemPrice, total, dateTime, seller, category)
-                LineItem(csv = values.joinToString(","))
+            .mapNotNull { line ->
+                try {
+                    val parts = line.split(";")
+                    val articleName = parts[5]
+                    val quantity = parts[6].toDouble()
+                    val total = parts[8].toDouble()
+                    val itemPrice = String.format("%.2f", (total / (1 / quantity)))
+                    val dateTime = outputDateFormat.format(migrosFormatter.parse("${parts[0]} ${parts[1]}"))
+                    val seller = "Migros"
+                    val category = ""
+                    val values = listOf(articleName, quantity, itemPrice, total, dateTime, seller, category)
+                    LineItem(csv = values.joinToString(","))
+                } catch (e: Exception) {
+                    logger.error("skipping line '$line', parse failed.", e)
+                    null
+                }
             }
             .toSet()
         return AnalysisResult(lineItems)

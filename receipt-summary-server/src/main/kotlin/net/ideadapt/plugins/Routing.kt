@@ -22,7 +22,6 @@ import org.koin.java.KoinJavaComponent.inject
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.*
-import kotlin.coroutines.CoroutineContext
 
 fun Application.configureRouting() {
     val worker by inject<Worker>(Worker::class.java)
@@ -70,7 +69,7 @@ fun Application.configureRouting() {
                             buffer.readFrom(part.provider().toInputStream())
 
                             val nx = NxClient()
-                            results.add(nx.storeFile(buffer, fileName))
+                            results.add(nx.saveFile(buffer, fileName))
                         }
 
                         else -> {

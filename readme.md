@@ -26,4 +26,17 @@ TODO
 ## Receipt Source
 
 - Migros: account.migros.ch => download yearly CSV
-- Coop: `document.querySelectorAll("[data-href*='/receipt']").forEach(el => download(window.location.origin + el.dataset.href))`
+- Coop: 
+
+```javascript
+var download = (url) => {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = url.split('/').pop()
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}; 
+var sleep = (time) => new Promise((resolve) => setTimeout(resolve, time)); 
+for(const el of [...document.querySelectorAll("[data-href*='/receipt']")]) { await sleep(2000); download(window.location.origin + el.dataset.href) }
+```
