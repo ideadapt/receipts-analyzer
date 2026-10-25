@@ -26,15 +26,21 @@ class AiClient(
     fun categorize(itemNames: List<String>): List<String> {
         val params: ResponseCreateParams = ResponseCreateParams.builder().instructions(
             """
-        |# Goal: Categorization of shopping line items.
+        |# Goal: Categorization of swiss grocery store shopping line items.
+        |
         |# Input format:
-        |A new line delimited list of CSV data (separator is a comma ","). Two columns per line: line-item-id, article-name. Column values are NOT quoted.
+        |Each line: item-id,article-name
+        |There is not header line. Column values are not quoted.
+        |# Output format:
+        |Each line: item-id,article-name,category
+        |Do not modify anything from the input, just add the found category as a new column (after a comma ",") at the end.
+        |
         |# Categorization:
-        |Categorize line items based on the article-name (german). Choose the best matching, german category:
+        |Categorize line items based on the article-name (german, from swiss grocery stores like Migros, Coop, Aldi, Lidl). Choose the best matching, german category from:
         |Frucht, Gemüse, Milchprodukt, Käse, Eier, Öl, Süssigkeit, Getränk, Alkohol, Fleisch, Fleischersatz, Gebäck, Getreide, Kohlenhydrate, Gewürz, Kleidung, Haushalt, Elektronik.
         |Your last resort is a hyphen "-" symbol as category.
-        |Add the category at the end of the UNMODIFIED input line, separated by a comma ",".
-        |DO NOT SKIP ANY INPUT LINE! Just output the modified input lines, no introduction text or code quotes etc.
+        |
+        |DO NOT SKIP ANY INPUT LINE! Do not output and introduction text or code quotes etc.
         |""".trimMargin()
         )
             .addCodeInterpreterTool(Tool.CodeInterpreter.Container.CodeInterpreterToolAuto.builder().build())

@@ -245,7 +245,7 @@ data class AnalysisResult(
         val seller = parts[5]
         var category = parts[6]
 
-        val id = "$articleName:$totalPrice:$dateTime:$seller"
+        val id = "${dateTime.replace(":", "").replace("-", "")}_${hashCode()}"
 
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
